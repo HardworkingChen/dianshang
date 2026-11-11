@@ -25,6 +25,8 @@
 **/.vscode/
 .agents/
 .claude/
+.codex/
+.gemini/
 *.iml
 .DS_Store
 Thumbs.db
@@ -33,6 +35,8 @@ Thumbs.db
 *.env
 *.env.*
 !.env.example
+!**/*.env.example
+!**/.env.*.example
 **/application-local.yml
 **/application-local.yaml
 **/application-local.properties
@@ -44,3 +48,11 @@ Thumbs.db
 *.zip
 *.7z
 *.rar
+
+# Machine-specific project settings and generated output
+**/out/
+**/.python-analytics-venv/
+output/
+deploy/server.env
+**/project.private.config.json
+/2026年计算机设计大赛省赛经验总结报告(1).docx
