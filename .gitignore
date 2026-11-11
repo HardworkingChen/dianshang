@@ -48,6 +48,29 @@ Thumbs.db
 *.zip
 *.7z
 *.rar
+*.tar
+*.tar.gz
+*.tgz
+
+# Competition reports and exported documents; maintain documentation in Markdown
+*.doc
+*.docx
+*.ppt
+*.pptx
+*.xls
+*.xlsx
+*.pdf
+
+# Compiled packages and generated recordings
+*.jar
+*.war
+*.exe
+*.dll
+*.so
+*.dylib
+*.mp4
+*.mov
+*.avi
 
 # Machine-specific project settings and generated output
 **/out/
