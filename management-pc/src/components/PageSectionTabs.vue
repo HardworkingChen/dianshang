@@ -18,6 +18,8 @@ const emit = defineEmits(['update:modelValue'])
 const conciseCopy = import.meta.env.VITE_CONCISE_COPY !== 'false'
 
 const currentTab = computed(() => props.tabs.find(tab => tab.key === props.modelValue) || props.tabs[0] || null)
+const showTitle = computed(() => !conciseCopy && !!props.title)
+const showMeta = computed(() => !!props.primaryLabel || !!props.pageLabel || showTitle.value || (!!props.description && !conciseCopy))
 
 const setTab = key => {
   if (!key || key === props.modelValue) return
@@ -27,7 +29,7 @@ const setTab = key => {
 
 <template>
   <section class="page-section-tabs">
-    <div class="page-section-tabs__meta">
+    <div v-if="showMeta" class="page-section-tabs__meta">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div v-if="primaryLabel || pageLabel" class="page-section-tabs__breadcrumb">
@@ -37,7 +39,7 @@ const setTab = key => {
               <span>{{ pageLabel }}</span>
             </template>
           </div>
-          <h2 class="page-section-tabs__title">{{ title }}</h2>
+          <h2 v-if="showTitle" class="page-section-tabs__title">{{ title }}</h2>
           <p v-if="description && !conciseCopy" class="page-section-tabs__desc">{{ description }}</p>
         </div>
       </div>
@@ -78,17 +80,17 @@ const setTab = key => {
 .page-section-tabs {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px 0 0;
+  gap: 10px;
+  padding: 4px 0 0;
 }
 
 .page-section-tabs__meta {
-  padding: 0 4px 12px;
-  border-bottom: 1px solid rgba(203, 213, 225, 0.9);
+  padding: 0 2px 6px;
+  border-bottom: 1px solid rgba(220, 227, 236, 0.92);
 }
 
 .dark .page-section-tabs__meta {
-  border-bottom-color: rgba(71, 85, 105, 0.5);
+  border-bottom-color: rgba(51, 65, 85, 0.78);
 }
 
 .page-section-tabs__breadcrumb {
@@ -96,11 +98,11 @@ const setTab = key => {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #64748b;
+  color: #909399;
 }
 
 .dark .page-section-tabs__breadcrumb {
@@ -119,10 +121,10 @@ const setTab = key => {
 }
 
 .page-section-tabs__title {
-  margin-top: 10px;
-  font-size: 18px;
-  font-weight: 800;
-  color: #0f172a;
+  margin-top: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #303133;
 }
 
 .dark .page-section-tabs__title {
@@ -143,48 +145,48 @@ const setTab = key => {
 .page-section-tabs__body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .page-section-tabs__tab-list {
   display: flex;
   min-width: max-content;
   gap: 8px;
-  padding-bottom: 4px;
+  padding-bottom: 2px;
 }
 
 .page-section-tabs__tab {
-  min-width: 124px;
-  border-radius: 12px;
-  border: 1px solid rgba(203, 213, 225, 0.85);
-  padding: 12px 16px 10px;
+  min-width: 104px;
+  border-radius: 4px;
+  border: 1px solid rgba(220, 227, 236, 0.92);
+  padding: 9px 14px;
   text-align: left;
   transition: all 0.2s ease;
 }
 
 .page-section-tabs__tab--active {
-  border-color: rgba(37, 99, 235, 0.22);
-  background: rgba(239, 246, 255, 0.95);
-  color: #0f172a;
+  border-color: #409eff;
+  background: rgba(64, 158, 255, 0.1);
+  color: #303133;
 }
 
 .page-section-tabs__tab--idle {
-  background: transparent;
-  color: #526172;
+  background: #fff;
+  color: #606266;
 }
 
 .page-section-tabs__tab--idle:hover {
-  border-color: rgba(37, 99, 235, 0.18);
-  color: #0f172a;
+  border-color: rgba(64, 158, 255, 0.64);
+  color: #303133;
 }
 
 .dark .page-section-tabs__tab {
-  border-color: rgba(71, 85, 105, 0.5);
+  border-color: rgba(51, 65, 85, 0.88);
 }
 
 .dark .page-section-tabs__tab--active {
-  border-color: rgba(96, 165, 250, 0.24);
-  background: rgba(30, 41, 59, 0.96);
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(30, 41, 59, 0.92);
   color: #eff6ff;
 }
 
@@ -198,8 +200,8 @@ const setTab = key => {
 }
 
 .page-section-tabs__tab-label {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .page-section-tabs__tab-hint {

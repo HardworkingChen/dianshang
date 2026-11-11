@@ -160,7 +160,9 @@ public class ContentBasedFiltering {
 
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Product::getStatus, 1);
-        wrapper.notIn(Product::getId, excludedProductIds);
+        if (!excludedProductIds.isEmpty()) {
+            wrapper.notIn(Product::getId, excludedProductIds);
+        }
 
         Set<Long> topCategories = categoryWeights.entrySet().stream()
                 .sorted(Map.Entry.<Long, Double>comparingByValue().reversed())

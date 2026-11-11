@@ -49,10 +49,11 @@
   },
   "compileType": "miniprogram",
   "lib版本": "3.15.0",
-  "appid": "touristappid",
+  "appid": "wx611888dc9f0dacf5",
   "projectname": "shuzhi-yougou-miniprogram",
   "condition": {},
   "simulatorPluginLib版本": {},
   "editorSetting": {},
-  "simulatorPluginLibVersion": {}
+  "simulatorPluginLibVersion": {},
+  "libVersion": "3.15.2"
 }

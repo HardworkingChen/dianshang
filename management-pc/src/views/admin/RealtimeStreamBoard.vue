@@ -1,71 +1,55 @@
 <template>
-  <div class="page-stack stream-page stream-page--aligned analytics-ui-page defense-page" v-loading="loading">
-    <section
-      v-if="demoContext"
-      class="demo-guide-banner panel-card"
+  <div class="page-stack stream-page stream-page--aligned analytics-ui-page analytics-page-shell" v-loading="loading">
+    <AnalyticsPageHero
+      kicker="实时数据"
+      title="实时看板"
+      summary="看热榜、KPI、样本用户和画像快照。"
+      :meta="overview.status?.redisHotLastUpdate ? `最后刷新 ${formatDateTime(overview.status?.redisHotLastUpdate)}` : '等待实时数据同步'"
+      :chips="['热榜', '推荐 KPI', '样本用户', '画像快照']"
+      :highlights="streamHeroHighlights"
     >
-      <div>
-        <div class="stream-kicker analytics-kicker">引导</div>
-        <div class="mt-1 text-base font-semibold text-slate-900 dark:text-slate-100">
-          步骤 {{ demoContext.index + 1 }}/{{ demoContext.total }} · {{ demoContext.step.title }}
+      <template #actions>
+        <el-button type="primary" @click="refreshAll">刷新</el-button>
+        <el-button @click="goTo('/admin/recommend/preview')">推荐预览</el-button>
+      </template>
+    </AnalyticsPageHero>
+
+    <section class="analytics-metric-strip">
+      <article v-for="item in heroMetrics" :key="item.label" class="analytics-metric-strip__item">
+        <span class="analytics-metric-strip__label">{{ item.label }}</span>
+        <strong class="analytics-metric-strip__value">{{ item.value }}</strong>
+        <span class="analytics-metric-strip__sub">{{ item.sub }}</span>
+      </article>
+    </section>
+
+    <section v-if="recommendationKpiReady" class="analytics-panel stream-kpi-panel">
+      <div class="stream-kpi-panel__head">
+        <div>
+          <div class="stream-page__kicker">推荐指标</div>
+          <h3 class="stream-kpi-panel__title">推荐实时指标</h3>
         </div>
-        <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">{{ demoContext.step.spotlightDescription }}</p>
+        <div class="stream-kpi-panel__meta">
+          统计日期 {{ recommendationKpi.statDate || '--' }} · 刷新 {{ formatDateTime(recommendationKpi.lastUpdate) }}
+        </div>
       </div>
-      <div class="demo-guide-banner__actions">
-        <el-button v-if="demoContext.previous" size="small" @click="goDemoStep(demoContext.previous)">上一步</el-button>
-        <el-button v-if="demoContext.next" type="primary" size="small" @click="goDemoStep(demoContext.next)">下一步</el-button>
-        <el-button v-else type="success" size="small" @click="goDemoStep(demoContext.step)">重新查看本页</el-button>
-        <el-button size="small" plain @click="stopDemoGuide">结束引导</el-button>
+
+      <div class="stream-kpi-grid">
+        <article v-for="item in recommendationKpiCards" :key="item.label" class="stream-kpi-card">
+          <span class="stream-kpi-card__label">{{ item.label }}</span>
+          <strong class="stream-kpi-card__value">{{ item.value }}</strong>
+          <span class="stream-kpi-card__sub">{{ item.sub }}</span>
+        </article>
+      </div>
+
+      <div class="stream-kpi-counts">
+        <div v-for="item in recommendationCountRows" :key="item.label" class="stream-kpi-count">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+        </div>
       </div>
     </section>
 
-    <DefenseSplitHero
-      :class="demoContext ? 'demo-focus-panel' : ''"
-      kicker="实时链路"
-      title="实时监控"
-      description="热榜 / 画像 / 积压 / 告警。"
-      badge="event → profile → hot → alert"
-      left-eyebrow="离线问题"
-      left-title="只看离线不够"
-      :left-rows="streamIntroRows"
-      right-eyebrow="实时方案"
-      right-title="保持链路可见"
-      :right-rows="streamSolutionRows"
-    >
-      <template #left-extra>
-        <div class="stream-hero__actions">
-          <el-button type="primary" @click="refreshAll">刷新</el-button>
-          <el-button @click="goTo('/admin/recommend/preview')">查看推荐预览</el-button>
-          <el-button plain @click="startDemoFromHere">查看引导</el-button>
-        </div>
-      </template>
-
-      <template #right-extra>
-        <div class="stream-hero__status mt-5">
-          <span v-for="step in pipelineSteps" :key="step.name" class="stream-chip" :class="`is-${step.status}`">
-            {{ step.name }}
-          </span>
-        </div>
-      </template>
-    </DefenseSplitHero>
-
-    <FeatureBrief
-      kicker="实时链路"
-      title="判断依据与组成"
-      :items="streamFeatureBrief"
-    />
-
-    <PageSectionTabs
-      v-model="streamActiveTab"
-      :tabs="streamTabs"
-      primary-label="管理端"
-      page-label="实时链路"
-      title="专题切换"
-      description="总览、画像、状态。"
-      :active-label="streamActiveTabInfo.label"
-    />
-
-    <div v-if="streamActiveTab === 'overview'" class="grid grid-cols-1 gap-6 xl:grid-cols-[1.8fr_1fr]">
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-[1.55fr_1fr]">
       <GlassCard title="热榜" class="stream-shell-card">
         <template #header>
           <div class="stream-toggle">
@@ -121,7 +105,93 @@
         </div>
       </GlassCard>
 
-      <GlassCard title="状态" class="stream-shell-card">
+      <GlassCard title="当前用户画像" class="stream-shell-card">
+        <div v-if="selectedSnapshot.user" class="space-y-5">
+          <div class="stream-user-spotlight">
+            <div class="flex items-center gap-4">
+              <el-avatar :size="48" class="stream-user-spotlight__avatar">{{ getUserInitial(selectedSnapshot.user) }}</el-avatar>
+              <div>
+                <div class="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  {{ selectedSnapshot.user.nickname || selectedSnapshot.user.username || `用户 #${selectedSnapshot.user.id}` }}
+                </div>
+                <div class="mt-1 text-sm text-slate-500 dark:text-slate-400">刷新 {{ formatDateTime(selectedSnapshot.lastUpdate) }}</div>
+              </div>
+            </div>
+
+            <div class="stream-user-spotlight__facts">
+              <div class="fact"><span>行为总量</span><strong>{{ formatNumber(totalBehaviorCount) }}</strong></div>
+              <div class="fact"><span>偏好类目</span><strong>{{ selectedSnapshot.categoryWeights?.length || 0 }}</strong></div>
+              <div class="fact"><span>实时标签</span><strong>{{ selectedSnapshot.tags?.length || 0 }}</strong></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 gap-5 lg:grid-cols-[1.02fr_1fr]">
+            <div class="panel-card--muted p-4">
+              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">行为分布</div>
+              <div ref="behaviorChartRef" class="mt-3 h-72 w-full"></div>
+            </div>
+            <div class="panel-card--muted p-4">
+              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">类目权重</div>
+              <div ref="categoryChartRef" class="mt-3 h-72 w-full"></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div class="panel-card--muted p-4">
+              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">用户标签</div>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <el-tag v-for="tag in visibleSnapshotTags" :key="tag" effect="light" round>{{ tag }}</el-tag>
+                <span v-if="!visibleSnapshotTags.length" class="text-sm text-slate-500 dark:text-slate-400">暂无标签</span>
+              </div>
+            </div>
+
+            <div class="panel-card--muted p-4">
+              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">高权重类目</div>
+              <div class="mt-3 space-y-3">
+                <div v-for="item in visibleTopCategories" :key="item.categoryName" class="stream-score-row">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="truncate text-sm text-slate-700 dark:text-slate-200">{{ item.categoryName }}</span>
+                    <span class="text-xs text-slate-500 dark:text-slate-400">{{ formatDecimal(item.weight) }}</span>
+                  </div>
+                  <div class="stream-score-bar"><div class="stream-score-bar__fill" :style="{ width: `${item.ratio}%` }"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <el-empty v-else description="暂无实时画像样本" />
+      </GlassCard>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-[1.35fr_0.65fr]">
+      <GlassCard title="样本用户" class="stream-shell-card">
+        <div class="stream-sample-grid">
+          <button
+            v-for="item in visibleSampleUsers"
+            :key="item.user?.id"
+            type="button"
+            class="stream-sample-card"
+            :class="{ 'is-active': selectedUserId === item.user?.id }"
+            @click="selectUser(item.user?.id)"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {{ item.user?.nickname || item.user?.username || `用户 #${item.user?.id}` }}
+                </div>
+                <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ formatDateTime(item.lastUpdate) }}</div>
+              </div>
+              <el-tag effect="plain">行为 {{ formatNumber(item.behaviorEventCount) }}</el-tag>
+            </div>
+            <div class="mt-4 flex flex-wrap gap-2">
+              <span v-for="tag in getUserTagPreview(item)" :key="tag" class="stream-mini-tag">{{ tag }}</span>
+            </div>
+            <div class="mt-4 text-xs text-slate-500 dark:text-slate-400">头部类目：{{ item.topCategory || '暂无' }}</div>
+          </button>
+        </div>
+      </GlassCard>
+
+      <GlassCard title="运行状态" class="stream-shell-card">
         <div class="space-y-4">
           <div class="stream-status-grid">
             <div class="stream-status-grid__item">
@@ -142,22 +212,21 @@
             </div>
           </div>
 
-          <div class="stream-status-grid">
-            <div class="stream-status-grid__item">
-              <div class="label">总积压</div>
-              <div class="value">{{ formatNumber(monitorData.consumerLag?.totalLag || 0) }}</div>
-            </div>
-            <div class="stream-status-grid__item">
-              <div class="label">死信总量</div>
-              <div class="value">{{ formatNumber(monitorData.deadLetter?.totalMessages || 0) }}</div>
-            </div>
-            <div class="stream-status-grid__item">
-              <div class="label">监控状态</div>
-              <div class="value">{{ monitorData.available ? '在线' : '离线' }}</div>
-            </div>
-            <div class="stream-status-grid__item">
-              <div class="label">监控刷新</div>
-              <div class="value">{{ formatDateTime(monitorData.updatedAt) }}</div>
+          <div class="panel-card--muted p-4">
+            <div class="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">监控摘要</div>
+            <div class="space-y-2 text-sm text-slate-600 dark:text-slate-300">
+              <div class="stream-kv-row">
+                <span class="stream-kv-row__topic">监控状态</span>
+                <span class="stream-kv-row__metric">{{ monitorData.available ? '在线' : '离线' }}</span>
+              </div>
+              <div class="stream-kv-row">
+                <span class="stream-kv-row__topic">消费积压</span>
+                <span class="stream-kv-row__metric">{{ formatNumber(monitorData.consumerLag?.totalLag || 0) }}</span>
+              </div>
+              <div class="stream-kv-row">
+                <span class="stream-kv-row__topic">监控刷新</span>
+                <span class="stream-kv-row__metric">{{ formatDateTime(monitorData.updatedAt) }}</span>
+              </div>
             </div>
           </div>
 
@@ -171,186 +240,32 @@
               <div v-if="!lagTopics.length" class="text-xs text-slate-500 dark:text-slate-400">暂无积压数据</div>
             </div>
           </div>
-
           <div class="panel-card--muted p-4">
-            <div class="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">死信队列</div>
-            <div class="space-y-2">
-              <div v-for="item in visibleDeadLetterTopics" :key="item.topic" class="stream-kv-row">
-                <span class="stream-kv-row__topic">{{ item.topic }}</span>
-                <span class="stream-kv-row__metric">{{ formatNumber(item.messages) }}</span>
-              </div>
-              <div v-if="!deadLetterTopics.length" class="text-xs text-slate-500 dark:text-slate-400">暂无死信数据</div>
-            </div>
-          </div>
-
-          <div class="panel-card--muted p-4">
-            <div class="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">告警面板</div>
-            <div class="space-y-2">
-              <div v-for="item in visibleMonitorAlerts" :key="item.code" class="stream-alert" :class="`is-${item.level}`">
-                <div class="stream-alert__title">{{ item.message }}</div>
-                <div class="stream-alert__meta">值 {{ formatNumber(item.metric) }} / 阈值 {{ formatNumber(item.threshold) }}</div>
-              </div>
-              <div v-if="!monitorAlerts.length" class="text-xs text-slate-500 dark:text-slate-400">暂无告警</div>
-            </div>
-          </div>
-
-          <div class="space-y-3">
-            <div v-for="step in pipelineSteps" :key="step.name" class="stream-pipeline">
-              <div class="stream-pipeline__dot" :class="`is-${step.status}`"></div>
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ step.name }}</div>
-                  <el-tag :type="step.status === 'active' ? 'success' : step.status === 'ready' ? 'info' : 'warning'" effect="light">
-                    {{ step.status === 'active' ? '运行中' : step.status === 'ready' ? '已接入' : '待开启' }}
-                  </el-tag>
-                </div>
-                <div class="mt-1 text-sm text-slate-600 dark:text-slate-300">{{ step.summary }}</div>
-                <div class="mt-1 text-xs break-all text-slate-500 dark:text-slate-400">{{ step.target }}</div>
-              </div>
+            <div class="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">处理阶段</div>
+            <div class="stream-page__pipeline">
+              <span v-for="step in pipelineSteps" :key="step.name" class="stream-chip" :class="`is-${step.status}`">
+                {{ step.name }}
+              </span>
             </div>
           </div>
         </div>
       </GlassCard>
     </div>
-
-    <div v-if="streamActiveTab === 'profile'" class="grid grid-cols-1 gap-6 xl:grid-cols-[1.35fr_1fr]">
-      <GlassCard title="画像" class="stream-shell-card">
-        <div v-if="selectedSnapshot.user" class="space-y-5">
-          <div class="stream-user-spotlight">
-            <div class="flex items-center gap-4">
-              <el-avatar :size="48" class="stream-user-spotlight__avatar">{{ getUserInitial(selectedSnapshot.user) }}</el-avatar>
-              <div>
-                <div class="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                  {{ selectedSnapshot.user.nickname || selectedSnapshot.user.username || `用户 #${selectedSnapshot.user.id}` }}
-                </div>
-                <div class="mt-1 text-sm text-slate-500 dark:text-slate-400">刷新 {{ formatDateTime(selectedSnapshot.lastUpdate) }}</div>
-              </div>
-            </div>
-
-            <div class="stream-user-spotlight__facts">
-              <div class="fact"><span>行为总量</span><strong>{{ formatNumber(totalBehaviorCount) }}</strong></div>
-              <div class="fact"><span>偏好类目</span><strong>{{ selectedSnapshot.categoryWeights?.length || 0 }}</strong></div>
-              <div class="fact"><span>实时标签</span><strong>{{ selectedSnapshot.tags?.length || 0 }}</strong></div>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 gap-5 lg:grid-cols-[1.05fr_1fr]">
-            <div class="panel-card--muted p-4">
-              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">行为分布</div>
-              <div ref="behaviorChartRef" class="mt-3 h-72 w-full"></div>
-            </div>
-            <div class="panel-card--muted p-4">
-              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">类目权重</div>
-              <div ref="categoryChartRef" class="mt-3 h-72 w-full"></div>
-            </div>
-          </div>
-        </div>
-        <el-empty v-else description="暂无实时画像样本" />
-      </GlassCard>
-
-      <GlassCard title="标签与规则" class="stream-shell-card">
-        <div class="space-y-4">
-          <div class="panel-card--muted p-4">
-            <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">用户标签</div>
-            <div class="mt-3 flex flex-wrap gap-2">
-              <el-tag v-for="tag in visibleSnapshotTags" :key="tag" effect="light" round>{{ tag }}</el-tag>
-              <span v-if="!visibleSnapshotTags.length" class="text-sm text-slate-500 dark:text-slate-400">暂无标签</span>
-            </div>
-          </div>
-
-          <div class="panel-card--muted p-4">
-            <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">高权重类目</div>
-            <div class="mt-3 space-y-3">
-              <div v-for="item in visibleTopCategories" :key="item.categoryName" class="stream-score-row">
-                <div class="flex items-center justify-between gap-3">
-                  <span class="truncate text-sm text-slate-700 dark:text-slate-200">{{ item.categoryName }}</span>
-                  <span class="text-xs text-slate-500 dark:text-slate-400">{{ formatDecimal(item.weight) }}</span>
-                </div>
-                <div class="stream-score-bar"><div class="stream-score-bar__fill" :style="{ width: `${item.ratio}%` }"></div></div>
-              </div>
-            </div>
-          </div>
-
-          <div class="panel-card--muted p-4">
-            <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">规则</div>
-            <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
-              <li>DWD 清洗，DWS 聚合。</li>
-              <li>热度 = 浏览 + 加购 + 收藏 + 支付。</li>
-              <li>Redis 输出画像与热榜。</li>
-            </ul>
-          </div>
-        </div>
-      </GlassCard>
-    </div>
-
-    <GlassCard v-if="streamActiveTab === 'profile'" title="样本用户" class="stream-shell-card">
-      <div class="stream-sample-grid">
-        <button
-          v-for="item in visibleSampleUsers"
-          :key="item.user?.id"
-          type="button"
-          class="stream-sample-card"
-          :class="{ 'is-active': selectedUserId === item.user?.id }"
-          @click="selectUser(item.user?.id)"
-        >
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                {{ item.user?.nickname || item.user?.username || `用户 #${item.user?.id}` }}
-              </div>
-              <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ formatDateTime(item.lastUpdate) }}</div>
-            </div>
-            <el-tag effect="plain">行为 {{ formatNumber(item.behaviorEventCount) }}</el-tag>
-          </div>
-          <div class="mt-4 flex flex-wrap gap-2">
-            <span v-for="tag in getUserTagPreview(item)" :key="tag" class="stream-mini-tag">{{ tag }}</span>
-          </div>
-          <div class="mt-4 text-xs text-slate-500 dark:text-slate-400">Top 类目：{{ item.topCategory || '暂无' }}</div>
-        </button>
-      </div>
-    </GlassCard>
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import * as echarts from 'echarts'
 import { getAdminStreamOverview, getAdminStreamUserSnapshot } from '../../api/admin'
+import AnalyticsPageHero from '../../components/analytics/AnalyticsPageHero.vue'
 import GlassCard from '../../components/GlassCard.vue'
-import PageSectionTabs from '../../components/PageSectionTabs.vue'
-import DefenseSplitHero from '../../components/DefenseSplitHero.vue'
-import FeatureBrief from '../../components/FeatureBrief.vue'
 import { subscribeRealtime } from '../../utils/realtime'
 import { getAnalyticsChartTheme } from '../../utils/chartTheme'
-import {
-  DEFENSE_DEMO_STEPS,
-  buildDefenseDemoRoute,
-  getDefenseDemoContext,
-  markDefenseDemoStep,
-  readDefenseDemoState,
-  startDefenseDemo,
-  stopDefenseDemo,
-} from '../../utils/workflowGuide'
 
-const route = useRoute()
 const router = useRouter()
-const streamFeatureBrief = [
-  { label: '判断依据', value: 'delay / hot / profile', text: '事件回流后同时看热榜、画像、告警。' },
-  { label: '功能组成', value: 'CDC → DWD → DWS → Redis', text: '采集、清洗、聚合、缓存四段。' },
-  { label: '输出结果', value: 'hot list + snapshot + alert', text: '给热门推荐、实时画像、异常监控提供信号。' },
-]
 const loading = ref(false)
-const streamTabs = [
-  { key: 'overview', label: '监控总览', hint: '状态', description: 'hot、lag、dead letter、alert。' },
-  { key: 'profile', label: '实时画像', hint: 'snapshot', description: 'behavior、tag、category_weight。' },
-]
-const streamTabKeySet = new Set(streamTabs.map(item => item.key))
-const normalizeStreamTab = (value) => {
-  const tab = String(value || '').trim()
-  return streamTabKeySet.has(tab) ? tab : streamTabs[0].key
-}
-const streamActiveTab = ref(normalizeStreamTab(route.query.tab))
 const overview = ref({})
 const selectedSnapshot = ref({})
 const selectedUserId = ref(null)
@@ -367,15 +282,15 @@ let themeObserver = null
 let unsubscribeStreamRealtime = null
 let refreshPromise = null
 let compactQuery = null
-const demoState = ref(readDefenseDemoState())
 
 const hotWindowOptions = [{ label: '近 1 分钟', value: '1m' }, { label: '近 1 小时', value: '1h' }, { label: '近 1 天', value: '1d' }]
 const pipelineSteps = computed(() => overview.value.pipeline || [])
 const sampleUsers = computed(() => overview.value.sampleUsers || [])
 const monitorData = computed(() => overview.value.monitor || {})
 const lagTopics = computed(() => monitorData.value.consumerLag?.topics || [])
-const deadLetterTopics = computed(() => monitorData.value.deadLetter?.topics || [])
-const monitorAlerts = computed(() => monitorData.value.alerts || [])
+const recommendationKpi = computed(() => overview.value.recommendationKpi || {})
+const recommendationMetrics = computed(() => recommendationKpi.value.metrics || {})
+const recommendationCounts = computed(() => recommendationKpi.value.counts || {})
 const currentHotProducts = computed(() => {
   if (hotWindow.value === '1m') return overview.value.hotProducts1m || []
   if (hotWindow.value === '1d') return overview.value.hotProducts1d || []
@@ -383,55 +298,83 @@ const currentHotProducts = computed(() => {
 })
 const visibleHotProducts = computed(() => (compactMode.value ? currentHotProducts.value.slice(0, 5) : currentHotProducts.value))
 const visibleLagTopics = computed(() => (compactMode.value ? lagTopics.value.slice(0, 3) : lagTopics.value.slice(0, 4)))
-const visibleDeadLetterTopics = computed(() => (compactMode.value ? deadLetterTopics.value.slice(0, 3) : deadLetterTopics.value.slice(0, 4)))
-const visibleMonitorAlerts = computed(() => (compactMode.value ? monitorAlerts.value.slice(0, 3) : monitorAlerts.value))
 const visibleSampleUsers = computed(() => (compactMode.value ? sampleUsers.value.slice(0, 4) : sampleUsers.value))
 const visibleSnapshotTags = computed(() => {
   const tags = selectedSnapshot.value.tags || []
   return compactMode.value ? tags.slice(0, 6) : tags
 })
 const heroMetrics = computed(() => [
-  { label: '分钟榜商品', value: formatNumber(overview.value.metrics?.hotProducts1m || 0), sub: 'hot_1m_count' },
-  { label: '小时榜商品', value: formatNumber(overview.value.metrics?.hotProducts1h || 0), sub: 'hot_1h_count' },
-  { label: '在线画像样本', value: formatNumber(overview.value.metrics?.sampleUsers || 0), sub: 'realtime_profile_count' },
-  { label: '消费积压', value: formatNumber(monitorData.value.consumerLag?.totalLag || 0), sub: monitorData.value.available ? 'consumer_lag' : 'monitor_offline' },
+  { label: '分钟榜商品', value: formatNumber(overview.value.metrics?.hotProducts1m || 0), sub: '1 分钟热榜数' },
+  { label: '小时榜商品', value: formatNumber(overview.value.metrics?.hotProducts1h || 0), sub: '1 小时热榜数' },
+  { label: '在线画像样本', value: formatNumber(overview.value.metrics?.sampleUsers || 0), sub: '实时画像数' },
+  { label: '消费积压', value: formatNumber(monitorData.value.consumerLag?.totalLag || 0), sub: monitorData.value.available ? '当前监控口径' : '监控离线' },
 ])
-const streamIntroRows = computed(() => [
+const streamHeroHighlights = computed(() => [
   {
-    label: '离线局限',
-    value: '只看 T+1 报表时，event 是否实时生效不可见。',
+    label: '分钟榜商品',
+    value: formatNumber(overview.value.metrics?.hotProducts1m || 0),
+    note: '1 分钟窗口内的实时热度商品数。',
   },
   {
-    label: '排障成本',
-    value: '没有 lag、dead letter、alert，就难定位卡点。',
+    label: '在线画像样本',
+    value: formatNumber(overview.value.metrics?.sampleUsers || 0),
+    note: `当前选中样本 ${selectedUserId.value || '--'}`,
   },
   {
-    label: '经营断层',
-    value: 'event 已发生，但 hot/profile 未刷新，实时价值就断层。',
+    label: '实时链路',
+    value: overview.value.status?.realtimeEnabled ? '已开启' : '未开启',
+    note: overview.value.status?.kafkaConsumerEnabled ? 'Kafka 消费中' : '当前未启用 Kafka 消费',
+    tone: overview.value.status?.realtimeEnabled ? 'success' : 'warning',
+  },
+  {
+    label: '消费积压',
+    value: formatNumber(monitorData.value.consumerLag?.totalLag || 0),
+    note: monitorData.value.available ? '来自监控汇总口径' : '监控离线，等待恢复',
+    tone: Number(monitorData.value.consumerLag?.totalLag || 0) > 0 ? 'warning' : 'success',
   },
 ])
-const streamSolutionRows = computed(() => [
+const recommendationKpiReady = computed(() => {
+  return Object.keys(recommendationMetrics.value).length > 0 || Object.keys(recommendationCounts.value).length > 0
+})
+const recommendationKpiCards = computed(() => [
   {
-    label: '链路可见',
-    value: `hot_1m = ${formatNumber(overview.value.metrics?.hotProducts1m || 0)}；hot_1h = ${formatNumber(overview.value.metrics?.hotProducts1h || 0)}。`,
+    label: 'CTR',
+    value: formatPercent(recommendationMetrics.value.CTR),
+    sub: `${formatNumber(recommendationCounts.value.clickCount)} 点击 / ${formatNumber(recommendationCounts.value.exposureCount)} 曝光`,
   },
   {
-    label: '监控告警',
-    value: `consumer_lag = ${formatNumber(monitorData.value.consumerLag?.totalLag || 0)}；monitor = ${monitorData.value.available ? 'online' : 'offline'}。`,
+    label: 'CVR',
+    value: formatPercent(recommendationMetrics.value.CVR),
+    sub: `${formatNumber(recommendationCounts.value.orderCount)} 下单 / ${formatNumber(recommendationCounts.value.clickCount)} 点击`,
   },
   {
-    label: '实时画像',
-    value: `profile_count = ${formatNumber(overview.value.metrics?.sampleUsers || 0)}；hot/profile/recommend 同页。`,
+    label: 'GMV',
+    value: formatCurrency(recommendationMetrics.value.GMV),
+    sub: '推荐链路成交额',
   },
+  {
+    label: 'AOV',
+    value: formatCurrency(recommendationMetrics.value.AOV),
+    sub: '平均客单价',
+  },
+  {
+    label: '7 日留存',
+    value: formatPercent(recommendationMetrics.value.Retention7d),
+    sub: '近 7 日留存',
+  },
+  {
+    label: '退款率',
+    value: formatPercent(recommendationMetrics.value.RefundRate),
+    sub: `${formatNumber(recommendationCounts.value.refundCount)} 退款 / ${formatNumber(recommendationCounts.value.orderCount)} 下单`,
+  },
+])
+const recommendationCountRows = computed(() => [
+  { label: '曝光', value: formatNumber(recommendationCounts.value.exposureCount) },
+  { label: '点击', value: formatNumber(recommendationCounts.value.clickCount) },
+  { label: '下单', value: formatNumber(recommendationCounts.value.orderCount) },
+  { label: '退款', value: formatNumber(recommendationCounts.value.refundCount) },
 ])
 const totalBehaviorCount = computed(() => (selectedSnapshot.value.behaviorDistribution || []).reduce((sum, item) => sum + Number(item.count || 0), 0))
-const demoContext = computed(() => {
-  if (!demoState.value.active) {
-    return null
-  }
-  return getDefenseDemoContext(route.path)
-})
-const streamActiveTabInfo = computed(() => streamTabs.find(item => item.key === streamActiveTab.value) || streamTabs[0])
 const topCategories = computed(() => {
   const rows = selectedSnapshot.value.categoryWeights || []
   if (!rows.length) return []
@@ -450,18 +393,35 @@ function getUserTagPreview(item) {
 }
 
 function formatNumber(value) {
-  const number = Number(value || 0)
-  return Number.isNaN(number) ? '0' : number.toLocaleString('zh-CN')
+  if (value == null || value === '') return '--'
+  const number = Number(value)
+  return Number.isNaN(number) ? '--' : number.toLocaleString('zh-CN')
 }
 
 function formatPrice(value) {
-  const number = Number(value || 0)
-  return Number.isNaN(number) ? '0.00' : number.toFixed(2)
+  if (value == null || value === '') return '--'
+  const number = Number(value)
+  return Number.isNaN(number) ? '--' : number.toFixed(2)
 }
 
 function formatDecimal(value, digits = 1) {
-  const number = Number(value || 0)
-  return Number.isNaN(number) ? '0.0' : number.toFixed(digits)
+  if (value == null || value === '') return '--'
+  const number = Number(value)
+  return Number.isNaN(number) ? '--' : number.toFixed(digits)
+}
+
+function formatPercent(value) {
+  if (value == null || value === '') return '--'
+  const number = Number(value)
+  return Number.isNaN(number) ? '--' : `${number.toFixed(2)}%`
+}
+
+function formatCurrency(value) {
+  if (value == null || value === '') return '--'
+  const number = Number(value)
+  return Number.isNaN(number)
+    ? '--'
+    : `¥${number.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 }
 
 function formatDateTime(value) {
@@ -478,51 +438,6 @@ function getUserInitial(user) {
 
 function goTo(path) {
   if (router.currentRoute.value.path !== path) router.push(path)
-}
-
-function cleanDemoQuery() {
-  const query = { ...route.query }
-  delete query.workflowGuide
-  delete query.workflowStep
-  return query
-}
-
-function syncDemoStateForRoute() {
-  const latest = readDefenseDemoState()
-  const context = getDefenseDemoContext(route.path)
-  if (context && route.query.workflowGuide === '1') {
-    demoState.value = markDefenseDemoStep(context.step.key)
-    return
-  }
-  if (!latest.active || !context) {
-    demoState.value = latest
-    return
-  }
-  demoState.value = latest.stepKey === context.step.key
-    ? latest
-    : markDefenseDemoStep(context.step.key)
-}
-
-function goDemoStep(step) {
-  if (!step) {
-    return
-  }
-  demoState.value = markDefenseDemoStep(step.key)
-  router.push(buildDefenseDemoRoute(step, cleanDemoQuery()))
-}
-
-function startDemoFromHere() {
-  const context = getDefenseDemoContext(route.path)
-  const step = context?.step || DEFENSE_DEMO_STEPS[0]
-  demoState.value = startDefenseDemo(step.key)
-  router.push(buildDefenseDemoRoute(step, cleanDemoQuery()))
-}
-
-function stopDemoGuide() {
-  demoState.value = stopDefenseDemo()
-  if (route.query.workflowGuide || route.query.workflowStep) {
-    router.replace({ path: route.path, query: cleanDemoQuery() })
-  }
 }
 
 async function refreshAll(options) {
@@ -668,34 +583,6 @@ watch(compactMode, async () => {
   renderCharts()
 })
 
-watch(
-  () => route.query.tab,
-  value => {
-    const nextTab = normalizeStreamTab(value)
-    if (nextTab !== streamActiveTab.value) {
-      streamActiveTab.value = nextTab
-    }
-  }
-)
-
-watch(streamActiveTab, value => {
-  const nextTab = normalizeStreamTab(value)
-  const currentTab = normalizeStreamTab(route.query.tab)
-  if (nextTab !== currentTab) {
-    router.replace({
-      query: {
-        ...route.query,
-        tab: nextTab === streamTabs[0].key ? undefined : nextTab,
-      },
-    })
-  }
-  nextTick(() => renderCharts())
-})
-
-watch(() => route.fullPath, () => {
-  syncDemoStateForRoute()
-}, { immediate: true })
-
 onMounted(async () => {
   compactQuery = window.matchMedia('(max-width: 768px)')
   compactQuery.addEventListener('change', syncCompactMode)
@@ -728,52 +615,145 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.stream-page__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.stream-page__kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #0f766e;
+}
+
+.stream-page__title {
+  margin-top: 8px;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #0f172a;
+}
+
+html.dark .stream-page__title { color: #f1f5f9; }
+
+.stream-page__summary {
+  margin-top: 10px;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+html.dark .stream-page__summary { color: #cbd5e1; }
+
+.stream-page__pipeline {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stream-page__header-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 8px;
+  flex-shrink: 0;
+}
+
+.stream-kpi-panel {
+  padding: 22px;
+}
+
+.stream-kpi-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.stream-kpi-panel__title {
+  margin-top: 8px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.stream-kpi-panel__meta {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.stream-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stream-kpi-card,
+.stream-kpi-count {
+  border: 1px solid var(--stream-border);
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.stream-kpi-card {
+  padding: 16px;
+}
+
+.stream-kpi-card__label,
+.stream-kpi-count span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.stream-kpi-card__value,
+.stream-kpi-count strong {
+  display: block;
+  margin-top: 8px;
+  color: #0f172a;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.stream-kpi-card__sub {
+  display: block;
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.stream-kpi-counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.stream-kpi-count {
+  padding: 14px 16px;
+}
+
 .stream-page--aligned {
   --stream-border: rgba(148, 163, 184, 0.22);
   --stream-soft-bg: rgba(248, 250, 252, 0.92);
 }
 
-.stream-hero__main {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
-  gap: 24px;
-  padding: 28px 28px 16px;
-}
-
-.stream-hero__title {
-  margin: 0;
-  font-size: 34px;
-  line-height: 1.15;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.stream-hero__desc {
-  margin: 14px 0 0;
-  max-width: 700px;
-  font-size: 14px;
-  line-height: 1.85;
-  color: #475569;
-}
-
-.stream-hero__actions,
 .stream-toggle {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
 
-.stream-hero__actions {
-  margin-top: 22px;
-}
-
-.stream-hero__metrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.stream-metric,
 .stream-hot-item,
 .stream-sample-card,
 .stream-user-spotlight {
@@ -781,48 +761,12 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.76);
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
-
-.stream-metric {
-  border-radius: 20px;
-  padding: 16px;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
-}
-
-.stream-metric:hover,
 .stream-hot-item:hover,
 .stream-sample-card:hover,
 .stream-sample-card.is-active {
   transform: translateY(-2px);
   box-shadow: 0 16px 32px rgba(15, 23, 42, 0.08);
   border-color: rgba(96, 165, 250, 0.35);
-}
-
-.stream-metric__label {
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #64748b;
-}
-
-.stream-metric__value {
-  margin-top: 8px;
-  font-size: 28px;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.stream-metric__sub {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: #64748b;
-}
-
-.stream-hero__status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 0 28px 24px;
 }
 
 .stream-chip,
@@ -971,61 +915,6 @@ onUnmounted(() => {
   color: #0f172a;
 }
 
-.stream-alert {
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--stream-border);
-  background: rgba(255, 255, 255, 0.76);
-}
-
-.stream-alert.is-warning {
-  border-color: rgba(245, 158, 11, 0.48);
-  background: rgba(255, 251, 235, 0.92);
-}
-
-.stream-alert.is-critical {
-  border-color: rgba(239, 68, 68, 0.48);
-  background: rgba(254, 242, 242, 0.92);
-}
-
-.stream-alert__title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #0f172a;
-}
-
-.stream-alert__meta {
-  margin-top: 4px;
-  font-size: 11px;
-  color: #64748b;
-}
-
-.stream-pipeline {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  padding: 10px 0;
-}
-
-.stream-pipeline__dot {
-  width: 11px;
-  height: 11px;
-  margin-top: 7px;
-  border-radius: 999px;
-  background: #fbbf24;
-  box-shadow: 0 0 0 6px rgba(251, 191, 36, 0.12);
-}
-
-.stream-pipeline__dot.is-ready {
-  background: #38bdf8;
-  box-shadow: 0 0 0 6px rgba(56, 189, 248, 0.12);
-}
-
-.stream-pipeline__dot.is-active {
-  background: #14b8a6;
-  box-shadow: 0 0 0 6px rgba(20, 184, 166, 0.12);
-}
-
 .stream-user-spotlight {
   display: flex;
   align-items: center;
@@ -1083,38 +972,6 @@ onUnmounted(() => {
   font-size: 12px;
 }
 
-.demo-guide-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border-color: rgba(125, 211, 252, 0.6);
-  background:
-    linear-gradient(135deg, rgba(37, 99, 235, 0.05), rgba(14, 165, 233, 0.03)),
-    var(--panel-bg);
-}
-
-.demo-guide-banner__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.demo-focus-panel {
-  position: relative;
-  box-shadow: 0 24px 48px rgba(30, 64, 175, 0.12);
-}
-
-.demo-focus-panel::after {
-  content: '';
-  position: absolute;
-  inset: 8px;
-  border: 2px dashed rgba(14, 116, 144, 0.36);
-  border-radius: 22px;
-  pointer-events: none;
-}
-
 :deep(.stream-shell-card > header) {
   border-bottom-color: rgba(148, 163, 184, 0.24) !important;
 }
@@ -1124,36 +981,27 @@ onUnmounted(() => {
   background: var(--stream-soft-bg);
 }
 
-.dark .demo-guide-banner {
-  border-color: rgba(56, 189, 248, 0.45);
-  background: linear-gradient(135deg, rgba(8, 47, 73, 0.72), rgba(12, 74, 110, 0.6));
-}
-
-.dark .demo-focus-panel {
-  box-shadow: 0 24px 48px rgba(14, 165, 233, 0.15);
-}
-
-.dark .demo-focus-panel::after {
-  border-color: rgba(56, 189, 248, 0.45);
-}
-
-.dark .stream-hero__title,
-.dark .stream-metric__value,
 .dark .stream-hot-item__rank,
+.dark .stream-kpi-panel__title,
+.dark .stream-kpi-card__value,
+.dark .stream-kpi-count strong,
 .dark .stream-status-grid__item .value,
 .dark .stream-user-spotlight__facts .fact strong {
   color: #e5edf7;
 }
 
-.dark .stream-hero__desc,
-.dark .stream-metric__sub,
 .dark .stream-toggle__item,
+.dark .stream-kpi-panel__meta,
+.dark .stream-kpi-card__label,
+.dark .stream-kpi-card__sub,
+.dark .stream-kpi-count span,
 .dark .stream-status-grid__item .label,
 .dark .stream-user-spotlight__facts .fact span {
   color: #94a3b8;
 }
 
-.dark .stream-metric,
+.dark .stream-kpi-card,
+.dark .stream-kpi-count,
 .dark .stream-hot-item,
 .dark .stream-sample-card,
 .dark .stream-user-spotlight {
@@ -1180,29 +1028,6 @@ onUnmounted(() => {
   color: #e5edf7;
 }
 
-.dark .stream-alert {
-  background: rgba(15, 23, 42, 0.72);
-  border-color: rgba(71, 85, 105, 0.72);
-}
-
-.dark .stream-alert.is-warning {
-  background: rgba(120, 53, 15, 0.2);
-  border-color: rgba(245, 158, 11, 0.48);
-}
-
-.dark .stream-alert.is-critical {
-  background: rgba(127, 29, 29, 0.2);
-  border-color: rgba(239, 68, 68, 0.48);
-}
-
-.dark .stream-alert__title {
-  color: #e5edf7;
-}
-
-.dark .stream-alert__meta {
-  color: #cbd5e1;
-}
-
 .dark .stream-toggle__item.is-active {
   background: rgba(15, 23, 42, 0.9);
   color: #bae6fd;
@@ -1214,13 +1039,11 @@ onUnmounted(() => {
   color: #bae6fd;
 }
 
-@media (max-width: 1279px) {
-  .stream-hero__main {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 1024px) {
+  .stream-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .stream-sample-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1232,17 +1055,13 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
-  .stream-hero__main,
-  .stream-hero__status {
-    padding-left: 18px;
-    padding-right: 18px;
+  .stream-kpi-panel__head {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
-  .stream-hero__title {
-    font-size: 28px;
-  }
-
-  .stream-hero__metrics,
+  .stream-kpi-grid,
+  .stream-kpi-counts,
   .stream-status-grid,
   .stream-sample-grid {
     grid-template-columns: 1fr;

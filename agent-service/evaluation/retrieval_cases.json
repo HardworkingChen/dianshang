@@ -1,0 +1,12 @@
+[
+  {"id":"refund_status_eligibility","query":"已支付订单可以申请退款吗","relevant_chunk_ids":["commerce_policies-1"]},
+  {"id":"duplicate_refund","query":"退款处理中还能不能再申请一次","relevant_chunk_ids":["commerce_policies-2"]},
+  {"id":"multi_merchant","query":"不同商家的商品能整单退款吗","relevant_chunk_ids":["commerce_policies-3"]},
+  {"id":"cancel_paid","query":"已支付的订单如何取消","relevant_chunk_ids":["commerce_policies-4"]},
+  {"id":"delivery_tracking","query":"订单已经发货，客服能查到快递轨迹吗","relevant_chunk_ids":["commerce_policies-5"]},
+  {"id":"handoff_dispute","query":"商品质量争议需要赔偿如何转人工","relevant_chunk_ids":["commerce_policies-6"]},
+  {"id":"refund_review","query":"预检通过是不是就代表退款通过了","relevant_chunk_ids":["commerce_policies-1"]},
+  {"id":"refund_rejected","query":"退款申请被拒绝后还能再次申请吗","relevant_chunk_ids":["commerce_policies-2"]},
+  {"id":"cancel_shipped","query":"发货后的订单还可以取消吗","relevant_chunk_ids":["commerce_policies-4"]},
+  {"id":"delivery_eta","query":"客服可以承诺什么时候送到吗","relevant_chunk_ids":["commerce_policies-5"]}
+]

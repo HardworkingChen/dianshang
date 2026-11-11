@@ -11,13 +11,12 @@
   >
     <view class="welcome-card" wx:if="{{messages.length === 0}}">
       <view class="welcome-topline">
-        <text class="welcome-kicker">智能购物助手</text>
-        <text class="welcome-status">实时导购</text>
+        <text class="welcome-status">AI</text>
       </view>
-      <view class="welcome-icon">智</view>
-      <view class="welcome-title">你好，我是你的智能导购</view>
+      <view class="welcome-icon">
+        <image class="ai-avatar-image" src="/assets/generated/ai-assistant-avatar.png" mode="aspectFill"></image>
+      </view>
       <view class="quick-section">
-        <view class="quick-title">试着这样问</view>
         <view class="quick-tags">
           <view class="quick-tag" wx:for="{{welcomePrompts}}" wx:key="*this" bindtap="sendQuickMessage" data-msg="{{item}}">
             {{item}}
@@ -76,7 +75,9 @@
         </view>
 
         <view class="message-row ai-row" wx:elif="{{item.role === 'assistant'}}" id="msg-{{item.id}}">
-          <view class="ai-avatar">智</view>
+          <view class="ai-avatar">
+            <image class="ai-avatar-image" src="/assets/generated/ai-assistant-avatar.png" mode="aspectFill"></image>
+          </view>
           <view class="ai-content">
             <view class="focus-points" wx:if="{{item.focusPoints && item.focusPoints.length > 0}}">
               <view class="focus-point" wx:for="{{item.focusPoints}}" wx:key="*this">{{item}}</view>
@@ -100,17 +101,17 @@
               <view class="product-item-wrap" wx:for="{{item.products}}" wx:for-item="p" wx:key="id">
                 <product-card
                   product="{{p}}"
-                  showReason="{{true}}"
+                  showReason="{{false}}"
                   showSales="{{false}}"
                   showAddCart="{{false}}"
                   showDislike="{{false}}"
-                  bind:click="goToProduct"
+                  bind:cardtap="goToProduct"
+                  data-id="{{p.id}}"
                 ></product-card>
               </view>
             </view>
 
             <view class="prompt-card" wx:if="{{item.suggestedPrompts && item.suggestedPrompts.length > 0}}">
-            <view class="prompt-title">继续问</view>
               <view class="prompt-actions">
               <view class="prompt-chip" wx:for="{{item.suggestedPrompts}}" wx:key="*this" wx:if="{{index < 3}}" bindtap="sendQuickMessage" data-msg="{{item}}">
                 {{item}}
@@ -120,7 +121,6 @@
 
             <view class="clarify-card" wx:if="{{item.needClarification && ((item.clarificationQuestion && item.clarificationQuestion.length > 0) || (item.followUpSuggestions && item.followUpSuggestions.length > 0))}}">
               <view class="clarify-title">补充条件更准</view>
-              <view class="clarify-desc" wx:if="{{item.clarificationQuestion && item.clarificationQuestion.length > 0}}">{{item.clarificationQuestion}}</view>
               <view class="clarify-actions" wx:if="{{item.followUpSuggestions && item.followUpSuggestions.length > 0}}">
                 <view class="clarify-chip" wx:for="{{item.followUpSuggestions}}" wx:key="*this" wx:if="{{index < 3}}" bindtap="sendQuickMessage" data-msg="{{item}}">
                   {{item}}
@@ -132,7 +132,9 @@
       </block>
 
       <view class="message-row ai-row" wx:if="{{loading}}" id="msg-loading">
-        <view class="ai-avatar">智</view>
+        <view class="ai-avatar">
+          <image class="ai-avatar-image" src="/assets/generated/ai-assistant-avatar.png" mode="aspectFill"></image>
+        </view>
         <view class="msg-bubble ai-bubble loading-bubble">
           <view class="typing-dots">
             <view class="typing-dot"></view>

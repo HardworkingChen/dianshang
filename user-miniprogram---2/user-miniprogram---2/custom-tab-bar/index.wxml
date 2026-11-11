@@ -1,7 +1,5 @@
 <view class="tab-bar-wrap">
-  <view class="tab-bar-ambient"></view>
-  <view class="tab-bar-ambient tab-bar-ambient-cyan"></view>
-  <view class="tab-bar glass-panel">
+  <view class="tab-bar">
     <view wx:for="{{list}}" wx:key="index" class="tab-bar-item {{selected === index ? 'active' : ''}}" data-path="{{item.pagePath}}" data-index="{{index}}" bindtap="switchTab">
       <view class="tab-item-active-bg" wx:if="{{selected === index}}"></view>
       <view class="tab-bar-icon-wrap">

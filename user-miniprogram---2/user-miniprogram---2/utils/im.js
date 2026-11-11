@@ -116,6 +116,16 @@ function requestHumanSupport(conversationId, payload = {}, options = {}) {
   })
 }
 
+function confirmAgentAction(conversationId, payload = {}, options = {}) {
+  const id = parsePositiveNumber(conversationId)
+  if (!id) {
+    return Promise.reject(new Error('会话不存在'))
+  }
+  return request.post(`/im/conversations/${id}/agent-actions/confirm`, payload, {
+    showLoading: options.showLoading !== false
+  })
+}
+
 module.exports = {
   normalizePage,
   parsePositiveNumber,
@@ -128,5 +138,6 @@ module.exports = {
   sendConversationMessage,
   markConversationRead,
   escalateConversation,
-  requestHumanSupport
+  requestHumanSupport,
+  confirmAgentAction
 }

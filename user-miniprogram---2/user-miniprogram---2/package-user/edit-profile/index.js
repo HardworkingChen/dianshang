@@ -80,7 +80,7 @@ Page({
       count: 1,
       mediaType: ['image'],
       sourceType: ['album', 'camera'],
-      sizeType: ['compressed'],
+      sizeType: ['original'],
       success: (res) => {
         const tempPath = res.tempFiles[0].tempFilePath
         this.uploadAvatar(tempPath)

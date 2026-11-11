@@ -1,94 +1,38 @@
 <template>
   <div v-loading="loading" class="space-y-6 analytics-ui-page ab-test-page">
-    <section class="panel-card analytics-hero ab-test-hero relative overflow-hidden p-6 md:p-8">
-      <div class="ab-test-hero__glow ab-test-hero__glow--primary"></div>
-      <div class="ab-test-hero__glow ab-test-hero__glow--secondary"></div>
-      <div class="relative">
-        <div class="flex flex-wrap items-start justify-between gap-4">
-          <div class="max-w-3xl">
-            <div class="analytics-kicker">Experiment Operations</div>
-            <h1 class="mt-3 text-3xl font-black tracking-tight text-slate-900 dark:text-slate-100 md:text-4xl">A/B 实验分析</h1>
-            <p class="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300 md:text-base">
-              同信号源；只比权重；看 CTR / CVR / Purchase。
-            </p>
-            <div class="mt-5 flex flex-wrap gap-2 text-xs md:text-sm">
-              <span v-for="item in abHeroTags" :key="item" class="analytics-tag px-3 py-1.5 font-medium">
-                {{ item }}
-              </span>
-            </div>
-          </div>
-
-          <div class="flex flex-wrap gap-3">
-            <el-button plain @click="startDemoFromHere">查看引导</el-button>
-            <el-button @click="fetchReport">刷新数据</el-button>
-            <el-button type="danger" plain class="!border-rose-200 !bg-white !text-rose-600" @click="handleReset">重置实验</el-button>
-          </div>
-        </div>
-
-        <div class="mt-6 grid gap-4 xl:grid-cols-[1.12fr_0.88fr]">
-          <div class="ab-test-hero-stats">
-            <article v-for="item in abHeroStats" :key="item.label" class="analytics-status-card ab-test-status-card p-5">
-              <div class="ab-test-status-card__label">{{ item.label }}</div>
-              <div class="mt-2 text-2xl font-black text-slate-900 dark:text-slate-100">{{ item.value }}</div>
-              <p class="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{{ item.note }}</p>
-            </article>
-          </div>
-
-          <article class="analytics-status-card ab-test-status-card p-5">
-            <div class="ab-test-status-card__label">当前判断</div>
-            <div class="mt-2 text-xl font-black text-slate-900 dark:text-slate-100">
-              {{ bestOverallGroup ? `${groupLabelMap[bestOverallGroup.code] || bestOverallGroup.description} 当前领先` : '等待有效样本' }}
-            </div>
-            <p class="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
-              score 只改权重，不改信号源口径；统一比较 exposure、click、cart、purchase。
-            </p>
-            <div class="mt-4 grid gap-3">
-              <div class="ab-test-focus-row">
-                <span>对照基线</span>
-                <strong>{{ controlGroup ? groupStrategyMap.control.weights : '等待基线组数据' }}</strong>
-              </div>
-              <div class="ab-test-focus-row">
-                <span>领先幅度</span>
-                <strong>{{ bestOverallLift }}</strong>
-              </div>
-            </div>
-          </article>
+    <section class="ab-compact-head">
+      <div>
+        <div class="ab-compact-head__kicker">实验验证</div>
+        <h1 class="ab-compact-head__title">A/B 实验分析</h1>
+        <p class="ab-compact-head__summary">
+          同一批信号源下只调整权重，重点展示曝光、点击、购买和分层 Lift，不再展开浏览引导和流程讲解。
+        </p>
+      </div>
+      <div class="ab-compact-head__aside">
+        <span class="ab-compact-head__tag">传统电商常只看平均转化</span>
+        <p>{{ abHeadMeta }}</p>
+        <div class="ab-compact-head__actions">
+          <el-button @click="fetchReport">刷新数据</el-button>
+          <el-button type="danger" plain class="!border-rose-200 !bg-white !text-rose-600" @click="handleReset">重置实验</el-button>
         </div>
       </div>
     </section>
 
-    <FeatureBrief
-      kicker="实验验证"
-      title="判断依据与组成"
-      :items="abFeatureBrief"
-    />
-
-    <section
-      v-if="demoContext"
-      class="panel-card ab-test-guide p-4"
-    >
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div class="ab-test-guide__label">浏览引导</div>
-          <div class="mt-1 text-base font-semibold text-slate-900 dark:text-slate-100">
-            步骤 {{ demoContext.index + 1 }}/{{ demoContext.total }} · {{ demoContext.step.title }}
-          </div>
-          <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">{{ demoContext.step.spotlightDescription }}</p>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <el-button v-if="demoContext.previous" size="small" @click="goDemoStep(demoContext.previous)">上一步</el-button>
-          <el-button size="small" type="success" @click="stopDemoGuide">完成引导</el-button>
-        </div>
-      </div>
+    <section class="analytics-metric-strip">
+      <article v-for="item in abSummaryCards" :key="item.label" class="analytics-metric-strip__item">
+        <span class="analytics-metric-strip__label">{{ item.label }}</span>
+        <strong class="analytics-metric-strip__value">{{ item.value }}</strong>
+        <span class="analytics-metric-strip__sub">{{ item.sub }}</span>
+      </article>
     </section>
 
     <PageSectionTabs
       v-model="abActiveTab"
       :tabs="abTabs"
       primary-label="管理端"
-      page-label="A/B 实验页"
+      page-label="A/B 实验"
       title="实验视图"
-      description="公式、Lift、回滚。"
+      description="总览、分层、验证。"
       :active-label="abActiveTabInfo.label"
     />
 
@@ -218,8 +162,7 @@
 
     <div
       v-if="abActiveTab === 'lift'"
-      class="grid grid-cols-1 gap-6 xl:grid-cols-2 transition-all"
-      :class="demoContext ? 'ring-2 ring-cyan-300/70 rounded-2xl p-1 dark:ring-cyan-500/40' : ''"
+      class="grid grid-cols-1 gap-6 xl:grid-cols-2"
     >
       <section class="panel-card p-6">
         <div class="flex flex-wrap items-center justify-between gap-3">
@@ -292,8 +235,7 @@
 
     <section
       v-if="abActiveTab === 'script'"
-      class="panel-card p-6 transition-all"
-      :class="demoContext ? 'ring-2 ring-rose-300/60 dark:ring-rose-500/40' : ''"
+      class="panel-card p-6"
     >
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -326,30 +268,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getABTestReport, resetABTest } from '../../api/recommend'
 import PageSectionTabs from '../../components/PageSectionTabs.vue'
-import FeatureBrief from '../../components/FeatureBrief.vue'
-import {
-  DEFENSE_DEMO_STEPS,
-  buildDefenseDemoRoute,
-  getDefenseDemoContext,
-  markDefenseDemoStep,
-  readDefenseDemoState,
-  startDefenseDemo,
-  stopDefenseDemo,
-} from '../../utils/workflowGuide'
 
 const route = useRoute()
 const router = useRouter()
-const abFeatureBrief = [
-  { label: '判断依据', value: 'same signal / different weight', text: '统一比较 exposure、click、purchase。' },
-  { label: '功能组成', value: 'A / B / C', text: 'Hot、Hybrid、CF-heavy 三组并行。' },
-  { label: '输出结果', value: 'Lift + rollback', text: '看 CTR、CVR、Purchase Lift。' },
-]
 
 const loading = ref(false)
 const abTabs = [
-  { key: 'overview', label: '方案总览', hint: '公式', description: '权重公式与核心指标。' },
-  { key: 'lift', label: '分层评估', hint: 'Lift', description: '新老客、高低客单 Lift。' },
-  { key: 'script', label: '验证流程', hint: '回滚', description: '验证与回滚检查。' },
+  { key: 'overview', label: '实验总览', hint: '指标', description: '核心结果与组间对比。' },
+  { key: 'lift', label: '分群对比', hint: 'Lift', description: '新老客、高低客单分层差异。' },
+  { key: 'script', label: '验证检查', hint: '回滚', description: '保留必要验证与回滚提示。' },
 ]
 const abTabKeySet = new Set(abTabs.map(item => item.key))
 const normalizeAbTab = (value) => {
@@ -358,7 +285,6 @@ const normalizeAbTab = (value) => {
 }
 const abActiveTab = ref(normalizeAbTab(route.query.tab))
 const groups = ref([])
-const demoState = ref(readDefenseDemoState())
 const barChartRef = ref(null)
 const funnelChartRef = ref(null)
 let charts = []
@@ -368,7 +294,6 @@ let echartsModule = null
 const groupColors = { control: 'bg-gray-500', hybrid: 'bg-blue-500', cf_heavy: 'bg-emerald-500' }
 const groupBarColors = { control: '#6b7280', hybrid: '#3b82f6', cf_heavy: '#10b981' }
 const groupOrder = ['control', 'hybrid', 'cf_heavy']
-const abHeroTags = ['权重公式', 'CTR', 'CVR', 'Lift']
 const lifecycleSegmentOrder = ['new_user', 'returning_user']
 const valueSegmentOrder = ['high_aov', 'low_aov']
 const lifecycleLabelMap = { new_user: '新客', returning_user: '老客' }
@@ -548,23 +473,34 @@ const bestOverallLift = computed(() => {
   }
   return `相对 A 组 ${formatLift(calcLift(best.overallConversion, control.overallConversion))}`
 })
-const abHeroStats = computed(() => [
+const abHeadMeta = computed(() => {
+  const winner = bestOverallGroup.value
+    ? `${groupLabelMap[bestOverallGroup.value.code] || bestOverallGroup.value.description} 当前领先`
+    : '当前还在等待有效样本'
+  return `${winner}，${bestOverallLift.value}，说明同信号源下调整权重已经能拉开结果差异。`
+})
+const abSummaryCards = computed(() => [
   {
     label: '累计曝光',
     value: formatNumber(totalExposureCount.value),
-    note: 'sample = total_exposure',
+    sub: 'sample = total exposure',
   },
   {
     label: '当前领先',
     value: bestOverallGroup.value ? (groupLabelMap[bestOverallGroup.value.code] || bestOverallGroup.value.description) : '等待实验结果',
-    note: bestOverallGroup.value
+    sub: bestOverallGroup.value
       ? `overall_cvr = ${formatPercent(bestOverallGroup.value.overallConversion, 4)}`
       : 'sample not enough',
   },
   {
     label: '基线策略',
     value: controlGroup.value ? 'A 对照组' : '等待对照数据',
-    note: groupStrategyMap.control.weights,
+    sub: groupStrategyMap.control.weights,
+  },
+  {
+    label: '领先幅度',
+    value: bestOverallLift.value,
+    sub: '统一比较 CTR / CVR / Purchase',
   },
 ])
 const abPlainSummaryCards = computed(() => {
@@ -599,12 +535,6 @@ const abPlainSummaryCards = computed(() => {
     },
   ]
 })
-const demoContext = computed(() => {
-  if (!demoState.value.active) {
-    return null
-  }
-  return getDefenseDemoContext(route.path)
-})
 
 const getEcharts = async () => {
   if (!echartsModule) {
@@ -613,55 +543,6 @@ const getEcharts = async () => {
   return echartsModule
 }
 const abActiveTabInfo = computed(() => abTabs.find(item => item.key === abActiveTab.value) || abTabs[0])
-
-const cleanDemoQuery = () => {
-  const query = { ...route.query }
-  delete query.workflowGuide
-  delete query.workflowStep
-  return query
-}
-
-const syncDemoStateForRoute = () => {
-  const latest = readDefenseDemoState()
-  const context = getDefenseDemoContext(route.path)
-  if (context && route.query.workflowGuide === '1') {
-    demoState.value = markDefenseDemoStep(context.step.key)
-    return
-  }
-  if (!latest.active || !context) {
-    demoState.value = latest
-    return
-  }
-  demoState.value = latest.stepKey === context.step.key
-    ? latest
-    : markDefenseDemoStep(context.step.key)
-}
-
-const goDemoStep = (step) => {
-  if (!step) {
-    return
-  }
-  demoState.value = markDefenseDemoStep(step.key)
-  router.push(buildDefenseDemoRoute(step, cleanDemoQuery()))
-}
-
-const startDemoFromHere = () => {
-  const context = getDefenseDemoContext(route.path)
-  const step = context?.step || DEFENSE_DEMO_STEPS[0]
-  demoState.value = startDefenseDemo(step.key)
-  router.push(buildDefenseDemoRoute(step, cleanDemoQuery()))
-}
-
-const stopDemoGuide = () => {
-  demoState.value = stopDefenseDemo()
-  if (route.query.workflowGuide || route.query.workflowStep) {
-    router.replace({ path: route.path, query: cleanDemoQuery() })
-  }
-}
-
-watch(() => route.fullPath, () => {
-  syncDemoStateForRoute()
-}, { immediate: true })
 
 watch(
   () => route.query.tab,
@@ -820,55 +701,75 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.ab-test-hero__glow {
-  position: absolute;
+.ab-compact-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1.16fr) minmax(300px, 0.84fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.ab-compact-head__kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #0369a1;
+}
+
+.ab-compact-head__title {
+  margin-top: 8px;
+  font-size: 40px;
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  color: #020617;
+}
+
+.ab-compact-head__summary,
+.ab-compact-head__aside p {
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #64748b;
+}
+
+.ab-compact-head__aside {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 24px;
+  padding: 18px 18px 16px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.95), rgba(255, 255, 255, 0.86));
+}
+
+.ab-compact-head__tag {
+  display: inline-flex;
+  align-items: center;
   border-radius: 999px;
-  pointer-events: none;
-  filter: blur(60px);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.88);
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
 }
 
-.ab-test-hero__glow--primary {
-  top: -34px;
-  left: -18px;
-  width: 220px;
-  height: 220px;
-  background: rgba(59, 130, 246, 0.12);
+.ab-compact-head__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
 }
 
-.ab-test-hero__glow--secondary {
-  right: 18px;
-  bottom: -64px;
-  width: 260px;
-  height: 260px;
-  background: rgba(14, 165, 233, 0.1);
-}
-
-.ab-test-hero-stats,
 .ab-test-summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
+  gap: 16px;
 }
 
-.ab-test-status-card,
 .ab-test-summary-card,
 .ab-test-group-card,
 .ab-test-lift-card {
   border: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(248, 250, 252, 0.92);
-}
-
-.ab-test-status-card {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
-}
-
-.ab-test-status-card__label,
-.ab-test-guide__label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: #64748b;
 }
 
 .ab-test-focus-row,
@@ -897,11 +798,6 @@ onUnmounted(() => {
   font-size: 15px;
   line-height: 1.6;
   color: #0f172a;
-}
-
-.ab-test-guide {
-  border-color: rgba(14, 165, 233, 0.22);
-  background: rgba(240, 249, 255, 0.82);
 }
 
 .ab-test-group-card {
@@ -960,7 +856,6 @@ onUnmounted(() => {
   border-color: rgba(245, 158, 11, 0.2);
 }
 
-.dark .ab-test-status-card,
 .dark .ab-test-summary-card,
 .dark .ab-test-group-card,
 .dark .ab-test-lift-card {
@@ -968,10 +863,29 @@ onUnmounted(() => {
   background: rgba(15, 23, 42, 0.46);
 }
 
-.dark .ab-test-status-card__label,
-.dark .ab-test-guide__label,
+.dark .ab-compact-head__title {
+  color: #f8fafc;
+}
+
+.dark .ab-compact-head__kicker {
+  color: #67e8f9;
+}
+
+.dark .ab-compact-head__summary,
+.dark .ab-compact-head__aside p,
 .dark .ab-test-focus-row span {
   color: #94a3b8;
+}
+
+.dark .ab-compact-head__aside {
+  border-color: rgba(71, 85, 105, 0.48);
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.dark .ab-compact-head__tag {
+  border-color: rgba(71, 85, 105, 0.48);
+  background: rgba(15, 23, 42, 0.62);
+  color: #cbd5e1;
 }
 
 .dark .ab-test-focus-row,
@@ -982,11 +896,6 @@ onUnmounted(() => {
 
 .dark .ab-test-focus-row strong {
   color: #e2e8f0;
-}
-
-.dark .ab-test-guide {
-  border-color: rgba(14, 165, 233, 0.24);
-  background: rgba(8, 47, 73, 0.42);
 }
 
 .dark .ab-test-group-card--winner {
@@ -1016,7 +925,7 @@ onUnmounted(() => {
 }
 
 @media (max-width: 1024px) {
-  .ab-test-hero-stats,
+  .ab-compact-head,
   .ab-test-summary-grid {
     grid-template-columns: 1fr;
   }

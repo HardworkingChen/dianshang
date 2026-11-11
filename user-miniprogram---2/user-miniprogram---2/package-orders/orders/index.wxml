@@ -2,7 +2,6 @@
   <custom-nav-bar title="订单" showBack="{{true}}" backgroundColor="#ffffff" color="#111111"></custom-nav-bar>
 
   <view class="control-hero">
-    <text class="hero-kicker">订单中心</text>
     <text class="hero-title">订单进度</text>
     <view class="hero-pills">
       <text class="hero-pill">全部 {{tabs[0].badgeCount || 0}}</text>
@@ -128,7 +127,6 @@
     <view class="empty-state" wx:else>
       <view class="empty-icon"></view>
       <text class="empty-title">暂无相关订单</text>
-      <text class="empty-desc">去首页看看最近的人气商品吧</text>
       <custom-button type="secondary" size="normal" customStyle="width: 220rpx;" bind:click="goHome">去逛逛</custom-button>
     </view>
 

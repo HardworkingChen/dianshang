@@ -14,7 +14,7 @@
     <block wx:elif="{{conversation}}">
       <view class="context-card">
         <view class="context-head">
-          <text class="context-title">{{conversation.conversationType === 'support' ? '官方客服会话' : '商家协商会话'}}</text>
+          <text class="context-title">{{conversation.conversationType === 'support' ? '官方客服' : '商家客服'}}</text>
           <text class="context-status">{{conversation.status || 'open'}}</text>
         </view>
         <view class="context-meta">
@@ -25,7 +25,6 @@
           <text class="meta-chip is-queue" wx:if="{{conversation.conversationType === 'support' && conversation.status === 'pending_support'}}">
             {{queueHint || '人工排队中'}}
           </text>
-          <text class="meta-chip">优先级 {{conversation.priority || 'normal'}}</text>
         </view>
 
         <view class="context-link-row" wx:if="{{conversation.context && conversation.context.order}}">
@@ -48,12 +47,41 @@
           <view class="message-bubble">
             <view class="message-meta">{{item.senderName}} · {{item.createTime}}</view>
             <view class="message-content">{{item.content}}</view>
+            <view class="agent-data-panel" wx:if="{{item.agentOrders.length}}">
+              <view class="agent-data-title">本人最近订单</view>
+              <view class="agent-data-row" wx:for="{{item.agentOrders}}" wx:for-item="orderLine" wx:key="*this">{{orderLine}}</view>
+              <view class="agent-data-hint">回复订单号即可继续查询或办理售后</view>
+            </view>
+            <view class="agent-data-panel" wx:if="{{item.refundHistory.length}}">
+              <view class="agent-data-title">最近售后记录</view>
+              <view class="agent-data-row" wx:for="{{item.refundHistory}}" wx:for-item="refundLine" wx:key="*this">{{refundLine}}</view>
+            </view>
+            <view class="agent-action" wx:if="{{item.agentAction && (item.agentAction.type === 'refund_apply' || item.agentAction.type === 'order_cancel')}}">
+              <view class="agent-action-title">{{item.agentAction.type === 'order_cancel' ? '订单取消' : '售后申请'}} · {{item.agentAction.orderNo}}</view>
+              <input
+                wx:if="{{item.agentAction.type === 'refund_apply' && item.agentAction.status === 'pending'}}"
+                class="agent-action-reason-input"
+                value="{{item.agentActionDescription}}"
+                maxlength="200"
+                placeholder="补充退款原因"
+                data-message-id="{{item.id}}"
+                bindinput="onAgentActionDescriptionChange"
+              />
+              <view class="agent-action-reason" wx:elif="{{item.agentAction.description}}">申请原因：{{item.agentAction.description}}</view>
+              <button
+                class="agent-action-button {{item.canConfirmAgentAction ? '' : 'is-done'}}"
+                wx:if="{{item.agentAction.status === 'pending' || item.agentAction.status === 'submitted' || item.agentAction.status === 'expired'}}"
+                data-message-id="{{item.id}}"
+                bindtap="confirmAgentAction"
+                disabled="{{!item.canConfirmAgentAction}}"
+              >{{item.agentActionLabel}}</button>
+            </view>
           </view>
         </view>
 
-        <view class="empty-message" wx:if="{{messages.length === 0}}">
-          暂无聊天
-        </view>
+      <view class="empty-message" wx:if="{{messages.length === 0}}">
+          暂无消息
+      </view>
       </view>
 
       <view style="height: 220rpx;"></view>
@@ -63,6 +91,12 @@
   </scroll-view>
 
   <view class="composer-wrap" wx:if="{{conversation}}">
+    <scroll-view class="agent-quick-actions" scroll-x wx:if="{{conversation.conversationType === 'support' && conversation.status === 'ai_serving'}}">
+      <view class="agent-quick-btn" data-prompt="查看我的订单" bindtap="sendQuickPrompt">查订单</view>
+      <view class="agent-quick-btn" data-prompt="查询退款进度" bindtap="sendQuickPrompt">查进度</view>
+      <view class="agent-quick-btn" data-prompt="可以申请退款吗" bindtap="sendQuickPrompt">退款条件</view>
+      <view class="agent-quick-btn" data-prompt="帮我取消订单" bindtap="sendQuickPrompt">取消订单</view>
+    </scroll-view>
     <view class="composer-tools">
       <view
         class="tool-btn active-opacity"
@@ -90,7 +124,7 @@
     <view class="composer-row">
       <input
         class="composer-input"
-        placeholder="{{conversation.conversationType === 'support' ? '输入消息，可转人工' : '输入消息'}}"
+        placeholder="输入消息"
         value="{{inputValue}}"
         bindinput="onInputChange"
         bindconfirm="sendMessage"

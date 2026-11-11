@@ -1,5 +1,12 @@
 const { getSystemInfoCompat } = require('../utils/system-info')
 
+let runtimeConfig = {}
+try {
+  runtimeConfig = require('./runtime') || {}
+} catch (err) {
+  runtimeConfig = {}
+}
+
 let privateConfig = {}
 try {
   privateConfig = require('../project.private.config.json') || {}
@@ -8,6 +15,16 @@ try {
 }
 
 const trimEndSlash = (value) => String(value || '').trim().replace(/\/+$/, '')
+const pickFirstConfiguredValue = (...values) => {
+  for (let index = 0; index < values.length; index += 1) {
+    const current = trimEndSlash(values[index])
+    if (current) {
+      return current
+    }
+  }
+  return ''
+}
+
 const withApiSuffix = (value) => {
   const normalized = trimEndSlash(value)
   if (!normalized) {
@@ -16,12 +33,48 @@ const withApiSuffix = (value) => {
   return normalized.endsWith('/api') ? normalized : `${normalized}/api`
 }
 
+const DEFAULT_REMOTE_BASE = 'http://39.102.61.148/api'
+
 const API_BASES = {
-  localhost: withApiSuffix(privateConfig.apiBaseUrlDev || 'http://localhost:8080'),
-  lan: withApiSuffix(privateConfig.apiBaseUrlLan || 'http://192.168.0.10:8080'),
-  server: withApiSuffix(privateConfig.apiBaseUrlDevice || privateConfig.apiBaseUrl || 'https://api.example.com'),
-  trial: withApiSuffix(privateConfig.apiBaseUrlTrial || 'https://staging.example.com'),
-  release: withApiSuffix(privateConfig.apiBaseUrlRelease || 'https://api.example.com')
+  localhost: withApiSuffix(
+    pickFirstConfiguredValue(
+      runtimeConfig.apiBaseUrlLocal,
+      privateConfig.apiBaseUrlLocal,
+      runtimeConfig.apiBaseUrlDevLocal,
+      privateConfig.apiBaseUrlDevLocal,
+      'http://localhost:8080'
+    )
+  ),
+  lan: withApiSuffix(
+    pickFirstConfiguredValue(
+      runtimeConfig.apiBaseUrlLan,
+      privateConfig.apiBaseUrlLan,
+      'http://192.168.0.10:8080'
+    )
+  ),
+  server: withApiSuffix(
+    pickFirstConfiguredValue(
+      runtimeConfig.apiBaseUrlDevice,
+      runtimeConfig.apiBaseUrl,
+      privateConfig.apiBaseUrlDevice,
+      privateConfig.apiBaseUrl,
+      DEFAULT_REMOTE_BASE
+    )
+  ),
+  trial: withApiSuffix(
+    pickFirstConfiguredValue(
+      runtimeConfig.apiBaseUrlTrial,
+      privateConfig.apiBaseUrlTrial,
+      DEFAULT_REMOTE_BASE
+    )
+  ),
+  release: withApiSuffix(
+    pickFirstConfiguredValue(
+      runtimeConfig.apiBaseUrlRelease,
+      privateConfig.apiBaseUrlRelease,
+      DEFAULT_REMOTE_BASE
+    )
+  )
 }
 
 const FALLBACK_BASE = API_BASES.server
@@ -29,14 +82,33 @@ const FALLBACK_BASE = API_BASES.server
 const ENV_CONFIG = {
   develop: {
     apiBaseUrl: API_BASES.server,
-    apiBaseUrlDevtools: privateConfig.useLocalDevApi === true ? API_BASES.localhost : API_BASES.server,
-    apiBaseUrlDevice: API_BASES.server
+    apiBaseUrlDevtools: withApiSuffix(
+      pickFirstConfiguredValue(
+        runtimeConfig.apiBaseUrlDevtools,
+        runtimeConfig.apiBaseUrlDev,
+        privateConfig.apiBaseUrlDevtools,
+        privateConfig.apiBaseUrlDev,
+        runtimeConfig.useLocalDevApi === true || privateConfig.useLocalDevApi === true ? API_BASES.localhost : '',
+        API_BASES.server
+      )
+    ),
+    apiBaseUrlDevice: withApiSuffix(
+      pickFirstConfiguredValue(
+        runtimeConfig.apiBaseUrlDevice,
+        privateConfig.apiBaseUrlDevice,
+        API_BASES.server
+      )
+    )
   },
   trial: {
-    apiBaseUrl: API_BASES.trial
+    apiBaseUrl: API_BASES.trial,
+    apiBaseUrlDevtools: API_BASES.trial,
+    apiBaseUrlDevice: API_BASES.trial
   },
   release: {
-    apiBaseUrl: API_BASES.release
+    apiBaseUrl: API_BASES.release,
+    apiBaseUrlDevtools: API_BASES.release,
+    apiBaseUrlDevice: API_BASES.release
   }
 }
 
@@ -103,10 +175,12 @@ const getRuntimeAllowedHosts = () => {
   const env = detectEnv版本()
   const serverHost = getHostFromUrl(API_BASES.server)
   const lanHost = getHostFromUrl(API_BASES.lan)
+  const trialHost = getHostFromUrl(API_BASES.trial)
+  const releaseHost = getHostFromUrl(API_BASES.release)
   const commonHosts = [
-    'api.example.com',
-    'staging.example.com',
-    'example.com'
+    serverHost,
+    trialHost,
+    releaseHost
   ]
 
   if (env === 'develop') {

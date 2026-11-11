@@ -35,6 +35,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import com.ecommerce.recommendation.ABTestFramework;
+import com.ecommerce.recommendation.ColdStartRecommendationService;
 import com.ecommerce.recommendation.CollaborativeFiltering;
 import com.ecommerce.recommendation.ContentBasedFiltering;
 import com.ecommerce.recommendation.HybridRecommendationEngine;
@@ -119,6 +120,9 @@ public class AdminController {
     private RecommendationService recommendationService;
 
     @Autowired
+    private ColdStartRecommendationService coldStartRecommendationService;
+
+    @Autowired
     private HybridRecommendationEngine hybridEngine;
 
     @Autowired
@@ -141,6 +145,9 @@ public class AdminController {
 
     @Autowired
     private ProductMapper productMapper;
+
+    @Autowired
+    private OrderItemMapper orderItemMapper;
 
     @Autowired
     private AnalyticsBehaviorDailyMapper analyticsBehaviorDailyMapper;
@@ -197,8 +204,41 @@ public class AdminController {
         wrapper.orderByDesc(User::getCreateTime);
         IPage<User> result = userService.page(new Page<>(page, size), wrapper);
 
+        List<User> merchantPageRecords = result.getRecords();
+        List<Long> merchantIds = merchantPageRecords.stream()
+                .map(User::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        List<Product> merchantProducts = merchantIds.isEmpty()
+                ? Collections.emptyList()
+                : productService.list(new LambdaQueryWrapper<Product>()
+                .in(Product::getMerchantId, merchantIds));
+        Map<Long, List<Product>> productsByMerchantId = merchantProducts.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.groupingBy(Product::getMerchantId));
+
+        Set<Long> productIds = merchantProducts.stream()
+                .map(Product::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        List<OrderItem> merchantOrderItems = productIds.isEmpty()
+                ? Collections.emptyList()
+                : orderItemMapper.selectList(new LambdaQueryWrapper<OrderItem>()
+                .in(OrderItem::getProductId, productIds));
+
+        Map<Long, Set<Long>> orderIdsByProductId = new HashMap<>();
+        for (OrderItem item : merchantOrderItems) {
+            if (item.getProductId() == null || item.getOrderId() == null) {
+                continue;
+            }
+            orderIdsByProductId
+                    .computeIfAbsent(item.getProductId(), key -> new HashSet<>())
+                    .add(item.getOrderId());
+        }
+
         List<Map<String, Object>> records = new ArrayList<>();
-        for (User merchant : result.getRecords()) {
+        for (User merchant : merchantPageRecords) {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("id", merchant.getId());
             item.put("username", merchant.getUsername());
@@ -209,25 +249,27 @@ public class AdminController {
             item.put("status", merchant.getStatus());
             item.put("createTime", merchant.getCreateTime());
 
-            LambdaQueryWrapper<Product> pWrapper = new LambdaQueryWrapper<>();
-            pWrapper.eq(Product::getMerchantId, merchant.getId());
-            List<Product> products = productService.list(pWrapper);
+            List<Product> products = productsByMerchantId.getOrDefault(merchant.getId(), Collections.emptyList());
             item.put("productCount", products.size());
             long totalSales = products.stream().mapToLong(p -> p.getSalesCount() != null ? p.getSalesCount() : 0).sum();
             item.put("totalSales", totalSales);
             BigDecimal totalRevenue = products.stream()
-                    .map(p -> p.getPrice().multiply(new BigDecimal(p.getSalesCount() != null ? p.getSalesCount() : 0)))
+                    .map(p -> {
+                        BigDecimal price = p.getPrice() != null ? p.getPrice() : BigDecimal.ZERO;
+                        int salesCount = p.getSalesCount() != null ? p.getSalesCount() : 0;
+                        return price.multiply(new BigDecimal(salesCount));
+                    })
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             item.put("totalRevenue", totalRevenue);
 
-            long orderCount = 0;
-            if (!products.isEmpty()) {
-                List<Long> pids = products.stream().map(Product::getId).collect(Collectors.toList());
-                orderCount = orderService.count(new LambdaQueryWrapper<Order>()
-                        .inSql(Order::getId, "SELECT DISTINCT order_id FROM order_item WHERE product_id IN ("
-                                + pids.stream().map(String::valueOf).collect(Collectors.joining(",")) + ")"));
+            Set<Long> merchantOrderIds = new HashSet<>();
+            for (Product product : products) {
+                if (product == null || product.getId() == null) {
+                    continue;
+                }
+                merchantOrderIds.addAll(orderIdsByProductId.getOrDefault(product.getId(), Collections.emptySet()));
             }
-            item.put("orderCount", orderCount);
+            item.put("orderCount", merchantOrderIds.size());
             records.add(item);
         }
 
@@ -248,18 +290,17 @@ public class AdminController {
         stats.put("totalMerchants", totalMerchants);
         stats.put("activeMerchants", activeMerchants);
 
-        List<User> allMerchants = userService.list(new LambdaQueryWrapper<User>().eq(User::getRole, "merchant"));
-        long totalProducts = 0;
-        BigDecimal totalRevenue = BigDecimal.ZERO;
-        for (User m : allMerchants) {
-            List<Product> products = productService.list(
-                    new LambdaQueryWrapper<Product>().eq(Product::getMerchantId, m.getId()));
-            totalProducts += products.size();
-            for (Product p : products) {
-                int sales = p.getSalesCount() != null ? p.getSalesCount() : 0;
-                totalRevenue = totalRevenue.add(p.getPrice().multiply(new BigDecimal(sales)));
-            }
-        }
+        List<Product> allMerchantProducts = productService.list(new LambdaQueryWrapper<Product>()
+                .select(Product::getId, Product::getPrice, Product::getSalesCount, Product::getMerchantId)
+                .isNotNull(Product::getMerchantId));
+        long totalProducts = allMerchantProducts.size();
+        BigDecimal totalRevenue = allMerchantProducts.stream()
+                .map(product -> {
+                    BigDecimal price = product.getPrice() != null ? product.getPrice() : BigDecimal.ZERO;
+                    int salesCount = product.getSalesCount() != null ? product.getSalesCount() : 0;
+                    return price.multiply(BigDecimal.valueOf(salesCount));
+                })
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
         stats.put("totalProducts", totalProducts);
         stats.put("totalRevenue", totalRevenue);
         return Result.success(stats);
@@ -278,22 +319,9 @@ public class AdminController {
     public Result<?> dashboard() {
         Map<String, Object> stats = orderService.getDashboardStats();
 
-        // 钱包相关统计
-        List<User> allUsers = userService.list(
-                new LambdaQueryWrapper<User>().select(User::getBalance));
-        BigDecimal totalBalance = allUsers.stream()
-                .map(u -> u.getBalance() != null ? u.getBalance() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        stats.put("totalBalance", totalBalance);
-
-        LambdaQueryWrapper<WalletTransaction> todayRechargeW = new LambdaQueryWrapper<>();
-        todayRechargeW.eq(WalletTransaction::getType, "recharge");
-        todayRechargeW.ge(WalletTransaction::getCreateTime, LocalDateTime.now().toLocalDate().atStartOfDay());
-        List<WalletTransaction> todayList = walletTransactionMapper.selectList(todayRechargeW);
-        BigDecimal todayRecharge = todayList.stream()
-                .map(WalletTransaction::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        stats.put("todayRecharge", todayRecharge);
+        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+        stats.put("totalBalance", safeAmount(userMapper.selectTotalBalance()));
+        stats.put("todayRecharge", safeAmount(walletTransactionMapper.selectAmountSumByType("recharge", todayStart)));
 
         return Result.success(stats);
     }
@@ -991,55 +1019,21 @@ public class AdminController {
     public Result<?> walletStats() {
         requireModuleEnabled("wallet");
         Map<String, Object> stats = new LinkedHashMap<>();
+        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+        Map<String, Object> rechargeSummary = walletTransactionMapper.selectAmountSummaryByType("recharge", null);
+        Map<String, Object> paySummary = walletTransactionMapper.selectAmountSummaryByType("pay", null);
+        Map<String, Object> refundSummary = walletTransactionMapper.selectAmountSummaryByType("refund", null);
+        Map<String, Object> todayRechargeSummary = walletTransactionMapper.selectAmountSummaryByType("recharge", todayStart);
 
-        // 用户总余额
-        List<User> allUsers = userService.list(
-                new LambdaQueryWrapper<User>().select(User::getBalance));
-        BigDecimal totalBalance = allUsers.stream()
-                .map(u -> u.getBalance() != null ? u.getBalance() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        stats.put("totalBalance", totalBalance);
-
-        // 总充值金额
-        LambdaQueryWrapper<WalletTransaction> rechargeW = new LambdaQueryWrapper<>();
-        rechargeW.eq(WalletTransaction::getType, "recharge");
-        List<WalletTransaction> rechargeTxs = walletTransactionMapper.selectList(rechargeW);
-        BigDecimal totalRecharge = rechargeTxs.stream()
-                .map(WalletTransaction::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        stats.put("totalRecharge", totalRecharge);
-        stats.put("rechargeCount", rechargeTxs.size());
-
-        // 总消费金额 (pay类型，amount为负)
-        LambdaQueryWrapper<WalletTransaction> payW = new LambdaQueryWrapper<>();
-        payW.eq(WalletTransaction::getType, "pay");
-        List<WalletTransaction> payTxs = walletTransactionMapper.selectList(payW);
-        BigDecimal totalSpent = payTxs.stream()
-                .map(t -> t.getAmount().abs())
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        stats.put("totalSpent", totalSpent);
-        stats.put("payCount", payTxs.size());
-
-        // 总退款金额
-        LambdaQueryWrapper<WalletTransaction> refundW = new LambdaQueryWrapper<>();
-        refundW.eq(WalletTransaction::getType, "refund");
-        List<WalletTransaction> refundTxs = walletTransactionMapper.selectList(refundW);
-        BigDecimal totalRefund = refundTxs.stream()
-                .map(WalletTransaction::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        stats.put("totalRefund", totalRefund);
-        stats.put("refundCount", refundTxs.size());
-
-        // 今日充值
-        LambdaQueryWrapper<WalletTransaction> todayW = new LambdaQueryWrapper<>();
-        todayW.eq(WalletTransaction::getType, "recharge");
-        todayW.ge(WalletTransaction::getCreateTime, LocalDateTime.now().toLocalDate().atStartOfDay());
-        List<WalletTransaction> todayTxs = walletTransactionMapper.selectList(todayW);
-        BigDecimal todayRecharge = todayTxs.stream()
-                .map(WalletTransaction::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        stats.put("todayRecharge", todayRecharge);
-        stats.put("todayRechargeCount", todayTxs.size());
+        stats.put("totalBalance", safeAmount(userMapper.selectTotalBalance()));
+        stats.put("totalRecharge", safeAmount(readBigDecimal(rechargeSummary == null ? null : rechargeSummary.get("amountSum"))));
+        stats.put("rechargeCount", readLong(rechargeSummary == null ? null : rechargeSummary.get("totalCount")));
+        stats.put("totalSpent", safeAmount(readBigDecimal(paySummary == null ? null : paySummary.get("amountAbsSum"))));
+        stats.put("payCount", readLong(paySummary == null ? null : paySummary.get("totalCount")));
+        stats.put("totalRefund", safeAmount(readBigDecimal(refundSummary == null ? null : refundSummary.get("amountSum"))));
+        stats.put("refundCount", readLong(refundSummary == null ? null : refundSummary.get("totalCount")));
+        stats.put("todayRecharge", safeAmount(readBigDecimal(todayRechargeSummary == null ? null : todayRechargeSummary.get("amountSum"))));
+        stats.put("todayRechargeCount", readLong(todayRechargeSummary == null ? null : todayRechargeSummary.get("totalCount")));
 
         return Result.success(stats);
     }
@@ -1203,21 +1197,42 @@ public class AdminController {
         ensureSegmentCoverageForUser(userId);
         int safeLimit = Math.max(1, Math.min(limit, 50));
         Map<String, Object> data = new LinkedHashMap<>();
+        ColdStartRecommendationService.RecommendationStage journeyStage = coldStartRecommendationService.resolveStage(userId);
+        boolean bootstrapStrategy = coldStartRecommendationService.shouldUseBootstrapStrategy(userId);
 
-        List<Long> cfIds = collaborativeFiltering.userBasedRecommend(userId, safeLimit);
-        List<Product> cfProducts = cfIds.isEmpty() ? Collections.emptyList() : recommendationService.getProductsByIds(cfIds);
+        List<Product> cfProducts;
+        List<Product> cbProducts;
+        List<Product> hybridProducts;
+        if (bootstrapStrategy) {
+            String adminSeed = "admin-bootstrap:" + userId;
+            cfProducts = coldStartRecommendationService.buildCandidates(
+                    userId, safeLimit, ColdStartRecommendationService.Strategy.COLLABORATIVE, adminSeed + ":cf");
+            cbProducts = coldStartRecommendationService.buildCandidates(
+                    userId, safeLimit, ColdStartRecommendationService.Strategy.CONTENT, adminSeed + ":cb");
+            hybridProducts = coldStartRecommendationService.buildCandidates(
+                    userId, safeLimit, ColdStartRecommendationService.Strategy.HYBRID, adminSeed + ":hybrid");
+        } else {
+            List<Long> cfIds = collaborativeFiltering.userBasedRecommend(userId, safeLimit);
+            cfProducts = cfIds.isEmpty() ? Collections.emptyList() : recommendationService.getProductsByIds(cfIds);
 
-        List<Long> cbIds = contentBasedFiltering.recommend(userId, safeLimit);
-        List<Product> cbProducts = cbIds.isEmpty() ? Collections.emptyList() : recommendationService.getProductsByIds(cbIds);
+            List<Long> cbIds = contentBasedFiltering.recommend(userId, safeLimit);
+            cbProducts = cbIds.isEmpty() ? Collections.emptyList() : recommendationService.getProductsByIds(cbIds);
 
-        HybridRecommendationEngine.RecommendationDecision hybridDecision = hybridEngine.recommendDetailedForGroup(
-                userId,
-                safeLimit,
-                ABTestFramework.ExperimentGroup.HYBRID,
-                false
-        );
-        List<Long> hybridIds = hybridDecision.getProductIds();
-        List<Product> hybridProducts = hybridIds.isEmpty() ? Collections.emptyList() : recommendationService.getProductsByIds(hybridIds);
+            HybridRecommendationEngine.RecommendationDecision hybridDecision = hybridEngine.recommendDetailedForGroup(
+                    userId,
+                    safeLimit,
+                    ABTestFramework.ExperimentGroup.HYBRID,
+                    false
+            );
+            List<Long> hybridIds = hybridDecision.getProductIds();
+            hybridProducts = hybridIds.isEmpty() ? Collections.emptyList() : recommendationService.getProductsByIds(hybridIds);
+            data.put("experimentGroup", hybridDecision.getExperimentGroup() != null
+                    ? hybridDecision.getExperimentGroup()
+                    : ABTestFramework.ExperimentGroup.HYBRID.code);
+            data.put("weights", hybridDecision.getAlgorithmWeights() == null || hybridDecision.getAlgorithmWeights().isEmpty()
+                    ? hybridEngine.getDefaultWeights()
+                    : hybridDecision.getAlgorithmWeights());
+        }
 
         List<Product> hotProducts = recommendationService.getHotRecommendations(safeLimit);
         Map<String, Object> onlinePayload = recommendationService.getPersonalRecommendationsWithExplanation(userId, safeLimit, true);
@@ -1233,22 +1248,24 @@ public class AdminController {
         data.put("portraitLayers", buildRecommendationPortraitLayers(userId, onlineProducts));
         data.put("explainableFormula", buildExplainableFormula());
         data.put("beforeAfterQuality", buildBeforeAfterRecommendationQuality(userId, hotProducts, onlineProducts, optimizedQuality));
-
-        data.put("experimentGroup", hybridDecision.getExperimentGroup() != null
-                ? hybridDecision.getExperimentGroup()
-                : ABTestFramework.ExperimentGroup.HYBRID.code);
-        data.put("weights", hybridDecision.getAlgorithmWeights() == null || hybridDecision.getAlgorithmWeights().isEmpty()
-                ? hybridEngine.getDefaultWeights()
-                : hybridDecision.getAlgorithmWeights());
+        data.putIfAbsent("experimentGroup", ABTestFramework.ExperimentGroup.HYBRID.code);
+        data.putIfAbsent("weights", hybridEngine.getDefaultWeights());
+        data.put("journeyStage", journeyStage.toMap());
+        data.put("bootstrapStrategy", bootstrapStrategy);
         Map<String, Object> algorithmFallback = new LinkedHashMap<>();
-        algorithmFallback.put("cf", false);
-        algorithmFallback.put("cb", false);
+        algorithmFallback.put("cf", bootstrapStrategy);
+        algorithmFallback.put("cb", bootstrapStrategy);
+        algorithmFallback.put("hybrid", bootstrapStrategy);
         data.put("algorithmFallback", algorithmFallback);
         Map<String, Object> unavailableReasons = new LinkedHashMap<>();
-        if (cfProducts.isEmpty()) {
+        if (bootstrapStrategy) {
+            unavailableReasons.put("cf", "当前用户仍处于新客/轻画像阶段，这里展示的是新客协同承接策略，不冒充成熟 CF user-user 召回。");
+            unavailableReasons.put("cb", "当前用户仍处于新客/轻画像阶段，这里展示的是新客内容承接策略，不冒充成熟内容画像召回。");
+            unavailableReasons.put("hybrid", "当前用户仍处于新客/轻画像阶段，这里展示的是新客冷启动混合策略。");
+        } else if (cfProducts.isEmpty()) {
             unavailableReasons.put("cf", "缺少相似用户或协同过滤候选，未用热门/混合结果冒充。");
         }
-        if (cbProducts.isEmpty()) {
+        if (!bootstrapStrategy && cbProducts.isEmpty()) {
             unavailableReasons.put("cb", "缺少内容相似候选，未用热门/混合结果冒充。");
         }
         data.put("unavailableReasons", unavailableReasons);
@@ -2337,6 +2354,10 @@ public class AdminController {
         } catch (Exception ignore) {
             return 0L;
         }
+    }
+
+    private BigDecimal safeAmount(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     private BigDecimal readBigDecimal(Object value) {

@@ -1,93 +1,23 @@
 <template>
   <div class="space-y-6 analytics-ui-page recommend-preview-page">
-    <section
-      v-if="demoContext"
-      class="panel-card recommend-preview-guide overflow-hidden"
-    >
-      <div class="flex flex-wrap items-center justify-between gap-3 p-5">
-        <div class="min-w-0 flex-1">
-          <div class="recommend-preview-kicker">浏览引导</div>
-          <div class="mt-1 text-base font-semibold text-slate-900 dark:text-slate-100">
-            步骤 {{ demoContext.index + 1 }}/{{ demoContext.total }} · {{ demoContext.step.title }}
-          </div>
-          <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">{{ demoContext.step.spotlightDescription }}</p>
-          <div class="mt-3">
-              <div class="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">浏览路径</div>
-            <div class="mt-2 flex flex-wrap items-center gap-2">
-              <button
-                v-for="step in DEFENSE_DEMO_STEPS"
-                :key="step.key"
-                type="button"
-                class="rounded-full border px-3 py-1.5 text-xs font-medium transition"
-                :class="step.key === currentDemoStepKey
-                  ? 'border-cyan-400 bg-cyan-500 text-white shadow-sm shadow-cyan-200/80 dark:border-cyan-400 dark:bg-cyan-500 dark:text-slate-950'
-                  : 'border-slate-200 bg-white/80 text-slate-600 hover:border-cyan-300 hover:text-cyan-600 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:border-cyan-500 dark:hover:text-cyan-300'"
-                @click="goDemoStep(step)"
-              >
-                {{ step.title }}
-              </button>
-            </div>
-          </div>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <el-button v-if="demoContext.previous" size="small" @click="goDemoStep(demoContext.previous)">上一步</el-button>
-          <el-button v-if="demoContext.next" type="primary" size="small" @click="goDemoStep(demoContext.next)">下一步</el-button>
-          <el-button size="small" plain @click="stopDemoGuide">结束引导</el-button>
-        </div>
-      </div>
-    </section>
-
-    <section class="recommend-preview-hero panel-card relative overflow-hidden p-6 md:p-8">
-      <div class="recommend-preview-hero__glow recommend-preview-hero__glow--primary"></div>
-      <div class="recommend-preview-hero__glow recommend-preview-hero__glow--secondary"></div>
-      <div class="relative grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
-        <div>
-          <div class="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
-            <span class="recommend-preview-pill">推荐运营</span>
-            <span class="recommend-preview-pill">算法预览</span>
-          </div>
-          <h1 class="mt-4 text-3xl font-black tracking-tight text-slate-900 dark:text-slate-100 md:text-4xl">推荐预览</h1>
-          <p class="mt-3 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300 md:text-base">
-            用户向量 / 权重公式 / Top-N / token。
-          </p>
-          <div class="mt-5 flex flex-wrap gap-2 text-xs md:text-sm">
-            <span v-for="item in previewHeroTags" :key="item" class="recommend-preview-tag">
-              {{ item }}
-            </span>
-          </div>
-        </div>
-        <div class="grid gap-3">
-          <article class="recommend-preview-status-card">
-            <div class="recommend-preview-status-card__label">视图</div>
-            <div class="mt-2 text-2xl font-black text-slate-900 dark:text-slate-100">{{ activePreviewTabInfo.label }}</div>
-            <p class="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{{ activePreviewTabInfo.description }}</p>
-          </article>
-          <article class="recommend-preview-status-card">
-            <div class="recommend-preview-status-card__label">策略组</div>
-            <div class="mt-2 text-2xl font-black text-slate-900 dark:text-slate-100">{{ currentGroupMeta.label }}</div>
-          <div class="mt-2 text-sm text-slate-600 dark:text-slate-300">实时刷新：{{ autoRefresh ? '开启' : '暂停' }}</div>
-            <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ realtimeRefreshLabel }}</div>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <FeatureBrief
-      kicker="推荐算法"
-      title="判断依据与组成"
-      :items="recommendFeatureBrief"
+    <AnalyticsPageHero
+      kicker="推荐运营"
+      title="推荐预览"
+      summary="看用户依据、实验权重和多算法结果。"
+      :meta="realtimeRefreshLabel"
+      :chips="previewHeroTags"
+      :highlights="previewHeroHighlights"
     />
 
-    <div class="panel-card p-5">
-      <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200/80 pb-4 dark:border-slate-700/80">
+    <div class="panel-card p-4 md:p-5">
+      <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200/80 pb-3 dark:border-slate-700/80">
         <div>
-          <div class="recommend-preview-kicker">运营查询</div>
+          <div class="recommend-preview-kicker">查询</div>
           <div class="mt-1 text-base font-semibold text-slate-900 dark:text-slate-100">用户查询</div>
         </div>
-        <div class="recommend-preview-refresh-badge">{{ realtimeRefreshLabel }}</div>
       </div>
 
-      <div class="mt-4 flex flex-wrap items-end gap-4">
+      <div class="recommend-preview-query-grid mt-3">
         <div>
           <label class="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-400">输入用户 ID</label>
           <el-input-number v-model="userId" :min="1" controls-position="right" class="!w-40" />
@@ -105,9 +35,21 @@
         <el-button type="primary" :loading="loading" @click="loadAll" class="recommend-preview-primary-btn">
           查询推荐
         </el-button>
-        <el-button plain @click="startDemoFromHere" class="recommend-preview-secondary-btn">
-          查看引导
-        </el-button>
+      </div>
+      <div class="recommend-preview-sample-users">
+        <span class="recommend-preview-sample-users__label">示例用户</span>
+        <button
+          v-for="item in sampleUserOptions"
+          :key="item.id"
+          type="button"
+          class="recommend-preview-sample-users__chip"
+          :class="{ 'recommend-preview-sample-users__chip--active': item.id === userId }"
+          :disabled="loading"
+          @click="selectSampleUser(item.id)"
+        >
+          <strong>{{ item.id }}</strong>
+          <span>{{ item.label }}</span>
+        </button>
       </div>
     </div>
 
@@ -116,8 +58,8 @@
       primary-label="管理端"
       page-label="推荐预览"
       title="推荐视图"
-      description="画像、公式、结果、对比。"
-      :tabs="displayPreviewPageTabs"
+      description=""
+      :tabs="previewPageTabs"
     />
 
     <template v-if="loaded">
@@ -140,6 +82,7 @@
                   <div class="text-xs text-gray-500 mt-1">
                     ID: {{ userId }} · 实验组:
                     <el-tag size="small" class="!rounded-full">{{ profile.experimentGroupDesc || currentGroupMeta.label }}</el-tag>
+                    <el-tag v-if="currentJourneyStage.label" size="small" effect="plain" class="!ml-2 !rounded-full">{{ currentJourneyStage.label }}</el-tag>
                   </div>
                 </div>
               </div>
@@ -288,53 +231,16 @@
         </div>
       </div>
 
-      <div v-else-if="activePreviewTab === 'explain'" class="panel-card p-6">
-        <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-          <div class="max-w-3xl">
-            <h3 class="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-              <span class="w-1.5 h-5 bg-gradient-to-b from-emerald-500 to-teal-500 rounded-full"></span>
-              算法公式
-            </h3>
-            <p class="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">
-              `User-CF` / `Content-CB` / `Hot` / `Hybrid`
-            </p>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <el-tag effect="plain" round>当前组 {{ currentGroupCode }}</el-tag>
-            <el-tag type="success" effect="plain" round>CF {{ weightRows[0]?.percent || '0%' }}</el-tag>
-            <el-tag type="warning" effect="plain" round>CB {{ weightRows[1]?.percent || '0%' }}</el-tag>
-            <el-tag type="danger" effect="plain" round>热门 {{ weightRows[2]?.percent || '0%' }}</el-tag>
-          </div>
-        </div>
-
-        <div class="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <div
-            v-for="card in algorithmExplainCards"
-            :key="card.title"
-            class="recommend-preview-algo-card"
-            :class="`recommend-preview-algo-card--${card.tone}`"
-          >
-            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ card.title }}</div>
-            <p class="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">{{ card.description }}</p>
-            <div class="recommend-preview-code-block mt-4">
-              {{ card.formula }}
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div
         v-else-if="activePreviewTab === 'results'"
-        ref="demoFocusResultRef"
         class="panel-card p-6 transition-all"
-        :class="demoContext ? 'ring-2 ring-cyan-300/70 shadow-cyan-100/70 dark:ring-cyan-500/40' : ''"
       >
         <h3 class="text-lg font-bold text-gray-800 dark:text-gray-100 mb-2 flex items-center gap-2">
           <span class="w-1.5 h-5 bg-gradient-to-b from-blue-500 to-cyan-500 rounded-full"></span>
-          推荐结果 / 推荐解释
+          推荐结果
         </h3>
         <div class="text-sm text-gray-500 dark:text-gray-400 mb-4 leading-6">
-          先召回，再合分。
+          只展示结果、原因和排序位置。
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
@@ -343,7 +249,7 @@
             <div class="mt-2 text-lg font-bold text-gray-900 dark:text-gray-100">{{ currentGroupMeta.label }}</div>
           </div>
           <div class="recommend-preview-metric-card recommend-preview-metric-card--emerald">
-            <div class="text-xs text-gray-500">Hybrid 主策略</div>
+            <div class="text-xs text-gray-500">混合权重</div>
             <div class="mt-2 text-lg font-bold text-gray-900 dark:text-gray-100">{{ currentGroupMeta.hybridSummary }}</div>
           </div>
           <div class="recommend-preview-metric-card recommend-preview-metric-card--amber">
@@ -351,12 +257,12 @@
             <div class="mt-2 text-lg font-bold text-gray-900 dark:text-gray-100">≤ 0.08</div>
           </div>
           <div class="recommend-preview-metric-card recommend-preview-metric-card--violet">
-            <div class="text-xs text-gray-500">热门候选池</div>
+            <div class="text-xs text-gray-500">热榜候选池</div>
             <div class="mt-2 text-lg font-bold text-gray-900 dark:text-gray-100">max(topN * 4, 40)</div>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
           <div
             v-for="(product, i) in (preview.products || [])"
             :key="product.id"
@@ -410,11 +316,12 @@
       <div v-else class="panel-card p-6">
         <h3 class="text-lg font-bold text-gray-800 dark:text-gray-100 mb-2 flex items-center gap-2">
           <span class="w-1.5 h-5 bg-gradient-to-b from-amber-500 to-orange-500 rounded-full"></span>
-          算法对比 · 最终上线排序 vs CF vs CB vs 热门
+          算法对比
         </h3>
-        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4 leading-6">
-          先看上线排序，再看召回对比。
-        </p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4 leading-6">同一用户横向对比。</p>
+        <div v-if="compare.bootstrapStrategy" class="mb-4 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm leading-6 text-amber-900 dark:border-amber-700/40 dark:bg-amber-900/10 dark:text-amber-100">
+          当前用户处于 {{ currentJourneyStage.label || '冷启动' }} 阶段，面板已切到新客承接策略。
+        </div>
         <div v-if="compareQuality" class="recommend-preview-quality-line mb-4">
           <div>
             <div class="text-xs text-slate-500 dark:text-slate-400">Top 偏好命中率</div>
@@ -440,7 +347,7 @@
             <div class="recommend-preview-compare-summary">
               {{ algo.description }}
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mt-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 mt-4">
               <div
                 v-for="(product, index) in (compare[algo.key] || [])"
                 :key="product.id"
@@ -474,8 +381,8 @@
   <section v-if="compare && (compare.portraitLayers || compare.explainableFormula || compareQuality?.tagComparisons?.length)" class="recommend-preview-explain">
     <div class="recommend-preview-explain-head">
       <div>
-        <h3>命中标签对比</h3>
-        <p>{{ compare.explainableFormula?.expression || '短期意图 + 长期兴趣 + 协同 + 热门' }}</p>
+        <h3>命中依据</h3>
+        <p>{{ compare.explainableFormula?.expression || '短期意图 + 长期偏好 + 热门补位' }}</p>
       </div>
       <span>{{ compare.explainableFormula?.name || '混合推荐' }}</span>
     </div>
@@ -532,24 +439,17 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as echarts from 'echarts'
 import { getRecommendCompare, getRecommendPreview, getRecommendRealtime, getUserProfile } from '../../api/recommend'
+import AnalyticsPageHero from '../../components/analytics/AnalyticsPageHero.vue'
 import PageSectionTabs from '../../components/PageSectionTabs.vue'
-import FeatureBrief from '../../components/FeatureBrief.vue'
-import {
-  DEFENSE_DEMO_STEPS,
-  buildDefenseDemoRoute,
-  getDefenseDemoContext,
-  markDefenseDemoStep,
-  readDefenseDemoState,
-  startDefenseDemo,
-  stopDefenseDemo,
-} from '../../utils/workflowGuide'
+import { demoPersonaSampleUsers } from '../../utils/competitionDemoData'
 
 const route = useRoute()
 const router = useRouter()
+const sampleUserOptions = demoPersonaSampleUsers
 
 const EXPERIMENT_GROUP_META = {
   control: {
@@ -589,62 +489,50 @@ const behaviorWeightRules = [
 const algoTabs = [
   {
     key: 'online',
-    label: '最终上线排序',
-    description: '最终展示结果 = 召回分 + 规则分 + 重排分。',
+    label: '线上排序',
+    description: '召回、规则、重排后的最终结果。',
   },
   {
     key: 'hybrid',
-    label: '混合推荐 (Hybrid)',
-    description: '三路候选合表后按实验组权重求和。',
+    label: '混合推荐',
+    description: '按实验组权重混排。',
   },
   {
     key: 'cf',
-    label: '协同过滤 (CF)',
-    description: '依据相似用户行为召回。',
+    label: '协同过滤',
+    description: '按相似用户行为召回。',
   },
   {
     key: 'cb',
-    label: '基于内容 (CB)',
-    description: '依据标签、品类、价格带匹配召回。',
+    label: '内容推荐',
+    description: '按标签、类目、价格带召回。',
   },
   {
     key: 'hot',
-    label: '热门推荐',
-    description: '依据全站热度和销量补冷启动。',
+    label: '热门兜底',
+    description: '按全站热度补冷启动。',
   },
 ]
 
-const previewHeroTags = ['用户向量', '实验分流', '权重公式', 'Top-N']
-
-const recommendFeatureBrief = [
-  { label: '判断依据', value: 'view/search/cart/favorite/purchase', text: '行为向量 + 分群 + 热度。' },
-  { label: '功能组成', value: 'CF + CB + Hot + Hybrid', text: '多路召回 + 加权重排。' },
-  { label: '输出结果', value: 'Top-N + token + reason', text: '保留来源、分数、归因。' },
-]
+const previewHeroTags = ['用户向量', '实验组', '权重', 'Top-N']
 
 const previewPageTabs = [
   {
     key: 'profile',
-    label: '实例画像与分群',
-    hint: '用户偏好 + 实验权重',
+    label: '画像与分群',
+    hint: '画像',
     description: '用户向量、分群、权重。',
-  },
-  {
-    key: 'explain',
-    label: '算法链路',
-    hint: 'CF / CB / 热门 / 混合',
-    description: '召回、相似度、混合公式。',
   },
   {
     key: 'results',
     label: '推荐结果',
-    hint: '排序结果 + 命中信号',
-    description: 'Top-N、命中通道、归因 token。',
+    hint: '结果',
+    description: 'Top-N 和命中信号。',
   },
   {
     key: 'compare',
     label: '算法对比',
-    hint: '同用户多策略对照',
+    hint: '对照',
     description: '同用户多策略结果对照。',
   },
 ]
@@ -664,12 +552,9 @@ const compare = ref({})
 const realtimeDashboard = ref({})
 const autoRefresh = ref(true)
 const lastRefreshAt = ref('')
-const competitionMode = import.meta.env.VITE_COMPETITION_MODE !== 'false'
-const activePreviewTab = ref(competitionMode ? 'results' : 'profile')
+const activePreviewTab = ref('results')
 const compareTab = ref('online')
 const profileBehaviorRef = ref(null)
-const demoFocusResultRef = ref(null)
-const demoState = ref(readDefenseDemoState())
 let chart = null
 let autoRefreshTimer = null
 const AUTO_REFRESH_INTERVAL_MS = 60000
@@ -679,21 +564,10 @@ const currentGroupCode = computed(() =>
 )
 
 const currentGroupMeta = computed(() => EXPERIMENT_GROUP_META[currentGroupCode.value] || EXPERIMENT_GROUP_META.disabled)
-const displayPreviewPageTabs = computed(() =>
-  competitionMode
-    ? previewPageTabs.filter(item => ['results', 'compare', 'profile'].includes(item.key))
-    : previewPageTabs
-)
 const activePreviewTabInfo = computed(() =>
-  displayPreviewPageTabs.value.find(item => item.key === activePreviewTab.value) || displayPreviewPageTabs.value[0]
+  previewPageTabs.find(item => item.key === activePreviewTab.value) || previewPageTabs[0]
 )
-const currentDemoStepKey = computed(() => demoContext.value?.step?.key || demoState.value.stepKey || '')
-const demoContext = computed(() => {
-  if (!demoState.value.active) {
-    return null
-  }
-  return getDefenseDemoContext(route.path)
-})
+const currentJourneyStage = computed(() => compare.value.journeyStage || profile.value.journeyStage || {})
 
 const realtimeSegment = computed(() => realtimeDashboard.value.segment || {})
 
@@ -721,6 +595,28 @@ const realtimeTopTags = computed(() =>
 const realtimeRefreshLabel = computed(() =>
   lastRefreshAt.value ? `最近刷新 ${formatDateTime(lastRefreshAt.value)}` : '尚未刷新'
 )
+const previewHeroHighlights = computed(() => [
+  {
+    label: '当前视图',
+    value: activePreviewTabInfo.value.label,
+    note: activePreviewTabInfo.value.description,
+  },
+  {
+    label: '策略组',
+    value: currentGroupMeta.value.label,
+    note: currentGroupMeta.value.hybridSummary,
+  },
+  {
+    label: '用户分群',
+    value: realtimeSegment.value.segmentName || '待识别',
+    note: realtimeSegment.value.segmentCode || '等待实时分群',
+  },
+  {
+    label: '刷新状态',
+    value: autoRefresh.value ? '60 秒自动刷新' : '仅手动刷新',
+    note: realtimeRefreshLabel.value,
+  },
+])
 
 const currentWeights = computed(() => {
   const weights = compare.value.weights || preview.value.algorithmWeights || {}
@@ -783,33 +679,6 @@ const categoryWeightRows = computed(() =>
   }
 )
 
-const algorithmExplainCards = computed(() => [
-  {
-    title: 'User-CF 协同过滤',
-    description: '构建 user-item 矩阵后计算余弦相似度。',
-    formula: 'purchase=8, favorite=3, cart=2, search=2, view=1\nsim(u,v)=R_u·R_v / (||R_u|| x ||R_v||)\nproductScore=Σ(similarity x behaviorWeight)',
-    tone: 'blue',
-  },
-  {
-    title: 'Content-CB 内容推荐',
-    description: '标签、品类、价格带组成内容相似度。',
-    formula: 'J(A,B)=|A∩B| / |A∪B|\ncontentScore=0.30*tagSim\n           +0.45*categoryWeight\n           +0.10*priceMatch\n           +0.15*quality',
-    tone: 'violet',
-  },
-  {
-    title: '热门候选',
-    description: '冷启动和低画像样本走热榜补位。',
-    formula: 'hotCandidatePool=max(topN*4, 40)\n按类目轮转补位，限制同类连续出现\nscore=max(热度归一化, 排名分*0.6) * popularityWeight',
-    tone: 'amber',
-  },
-  {
-    title: 'Hybrid 混合加权',
-    description: '三路候选合并后按实验组公式求最终分。',
-    formula: `finalScore=cfRankScore*${formatWeight(currentWeights.value.collaborative)}\n         +cbRankScore*${formatWeight(currentWeights.value.content)}\n         +hotRankScore*${formatWeight(currentWeights.value.popularity)}\n         +exploreScore(0~0.08*baseScore)`,
-    tone: 'emerald',
-  },
-])
-
 const compareRankMaps = computed(() => {
   const buildMap = list =>
     new Map((list || []).map((item, index) => [String(item.id), index + 1]))
@@ -855,10 +724,6 @@ function formatPercent(value) {
   return `${(Number(value || 0) * 100).toFixed(0)}%`
 }
 
-function formatWeight(value) {
-  return Number(value || 0).toFixed(1)
-}
-
 function toPercent(value) {
   return Math.max(0, Math.min(100, Number((Number(value || 0) * 100).toFixed(2))))
 }
@@ -900,48 +765,15 @@ function productSignalList(productId) {
   return signals
 }
 
-function cleanDemoQuery() {
-  const query = { ...route.query }
-  delete query.workflowGuide
-  delete query.workflowStep
-  return query
-}
-
-function syncDemoStateForRoute() {
-  const latest = readDefenseDemoState()
-  const context = getDefenseDemoContext(route.path)
-  if (context && route.query.workflowGuide === '1') {
-    demoState.value = markDefenseDemoStep(context.step.key)
+async function selectSampleUser(nextUserId) {
+  const normalizedUserId = normalizeUserId(nextUserId, 4)
+  if (normalizedUserId === userId.value && loaded.value) {
     return
   }
-  if (!latest.active || !context) {
-    demoState.value = latest
-    return
-  }
-  demoState.value = latest.stepKey === context.step.key
-    ? latest
-    : markDefenseDemoStep(context.step.key)
-}
-
-function goDemoStep(step) {
-  if (!step) {
-    return
-  }
-  demoState.value = markDefenseDemoStep(step.key)
-  router.push(buildDefenseDemoRoute(step, cleanDemoQuery()))
-}
-
-function startDemoFromHere() {
-  const context = getDefenseDemoContext(route.path)
-  const step = context?.step || DEFENSE_DEMO_STEPS[0]
-  demoState.value = startDefenseDemo(step.key)
-  router.push(buildDefenseDemoRoute(step, cleanDemoQuery()))
-}
-
-function stopDemoGuide() {
-  demoState.value = stopDefenseDemo()
-  if (route.query.workflowGuide || route.query.workflowStep) {
-    router.replace({ path: route.path, query: cleanDemoQuery() })
+  userId.value = normalizedUserId
+  await router.replace({ path: route.path, query: { ...route.query, userId: normalizedUserId } })
+  if (!loading.value) {
+    await loadAll()
   }
 }
 
@@ -1028,27 +860,6 @@ watch(() => route.query.userId, async value => {
     await loadAll()
   } catch {
     // keep the page interactive and let manual retry handle transient failures
-  }
-}, { immediate: true })
-
-watch(() => route.fullPath, () => {
-  syncDemoStateForRoute()
-}, { immediate: true })
-
-watch(demoContext, async (context) => {
-  if (!context) {
-    return
-  }
-  if (!loaded.value && !loading.value) {
-    try {
-      await loadAll()
-    } catch {
-      return
-    }
-  }
-  await nextTick()
-  if (demoFocusResultRef.value && typeof demoFocusResultRef.value.scrollIntoView === 'function') {
-    demoFocusResultRef.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 }, { immediate: true })
 
@@ -1148,20 +959,27 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.recommend-preview-guide {
-  position: relative;
-  background: transparent;
-  border-radius: 0 !important;
-  border-left: 0 !important;
-  border-right: 0 !important;
-}
-
 .recommend-preview-hero {
   background: transparent;
   border-color: rgba(203, 213, 225, 0.9);
   border-radius: 0 !important;
   border-left: 0 !important;
   border-right: 0 !important;
+}
+
+.recommend-preview-hero__grid {
+  display: grid;
+  gap: 12px;
+  align-items: end;
+}
+
+.recommend-preview-hero__copy {
+  min-width: 0;
+}
+
+.recommend-preview-hero__facts {
+  display: grid;
+  gap: 8px;
 }
 
 .dark .recommend-preview-hero {
@@ -1204,8 +1022,7 @@ onMounted(() => {
 }
 
 .recommend-preview-pill,
-.recommend-preview-tag,
-.recommend-preview-refresh-badge {
+.recommend-preview-tag {
   display: inline-flex;
   align-items: center;
   border: 1px solid rgba(148, 163, 184, 0.22);
@@ -1216,8 +1033,7 @@ onMounted(() => {
 }
 
 .dark .recommend-preview-pill,
-.dark .recommend-preview-tag,
-.dark .recommend-preview-refresh-badge {
+.dark .recommend-preview-tag {
   border-color: rgba(148, 163, 184, 0.18);
   background: transparent;
   color: #cbd5e1;
@@ -1234,41 +1050,34 @@ onMounted(() => {
 }
 
 .recommend-preview-status-card {
-  padding: 16px;
-  border-radius: 0;
-  border-top: 1px solid rgba(148, 163, 184, 0.2);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
-  border-left: 0;
-  border-right: 0;
-  background: transparent;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(248, 250, 252, 0.9);
   box-shadow: none;
 }
 
 .recommend-preview-page > .panel-card {
-  border-radius: 0 !important;
-  border-left: 0 !important;
-  border-right: 0 !important;
+  border-radius: 8px !important;
 }
 
 .dark .recommend-preview-status-card {
   border-color: rgba(71, 85, 105, 0.55);
-  background: transparent;
+  background: rgba(15, 23, 42, 0.52);
   box-shadow: none;
 }
 
-.recommend-preview-refresh-badge {
-  padding: 8px 14px;
-  font-size: 12px;
+.recommend-preview-query-grid {
+  display: grid;
+  gap: 12px;
+  align-items: end;
 }
 
 .recommend-preview-refresh-panel {
-  padding: 14px 16px;
-  border-radius: 0;
-  border-top: 1px solid rgba(148, 163, 184, 0.18);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-  border-left: 0;
-  border-right: 0;
-  background: transparent;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(248, 250, 252, 0.9);
 }
 
 .dark .recommend-preview-refresh-panel {
@@ -1276,13 +1085,30 @@ onMounted(() => {
   background: transparent;
 }
 
+@media (min-width: 1280px) {
+  .recommend-preview-hero__grid {
+    grid-template-columns: minmax(0, 1.2fr) minmax(420px, 0.95fr);
+  }
+
+  .recommend-preview-hero__facts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 768px) {
+  .recommend-preview-query-grid {
+    grid-template-columns: minmax(180px, 220px) minmax(240px, 320px) auto;
+  }
+}
+
 :deep(.recommend-preview-primary-btn) {
-  border-radius: 12px;
+  width: min(100%, 160px);
+  border-radius: 6px;
   box-shadow: none !important;
 }
 
 :deep(.recommend-preview-secondary-btn) {
-  border-radius: 12px;
+  border-radius: 6px;
   border-color: rgba(148, 163, 184, 0.35);
   color: #334155;
 }
@@ -1293,22 +1119,17 @@ onMounted(() => {
   background: rgba(15, 23, 42, 0.28);
 }
 
-.recommend-preview-algo-card,
 .recommend-preview-metric-card,
 .recommend-preview-product-card,
 .recommend-preview-compare-product,
 .recommend-preview-compare-summary {
   position: relative;
   overflow: hidden;
-  border-radius: 0;
-  border-top: 1px solid rgba(148, 163, 184, 0.18);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-  border-left: 0;
-  border-right: 0;
-  background: transparent;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.96);
 }
 
-.dark .recommend-preview-algo-card,
 .dark .recommend-preview-metric-card,
 .dark .recommend-preview-product-card,
 .dark .recommend-preview-compare-product,
@@ -1317,49 +1138,27 @@ onMounted(() => {
   background: transparent;
 }
 
-.recommend-preview-algo-card {
-  padding: 20px;
-}
-
-.recommend-preview-algo-card::before,
 .recommend-preview-metric-card::before {
   content: '';
   position: absolute;
   inset: 0 auto 0 0;
-  width: 4px;
-  border-radius: 999px;
+  width: 3px;
 }
 
-.recommend-preview-algo-card--blue::before,
 .recommend-preview-metric-card--blue::before {
   background: linear-gradient(180deg, #3b82f6, #06b6d4);
 }
 
-.recommend-preview-algo-card--violet::before,
 .recommend-preview-metric-card--violet::before {
   background: linear-gradient(180deg, #8b5cf6, #c084fc);
 }
 
-.recommend-preview-algo-card--amber::before,
 .recommend-preview-metric-card--amber::before {
   background: linear-gradient(180deg, #f59e0b, #fb7185);
 }
 
-.recommend-preview-algo-card--emerald::before,
 .recommend-preview-metric-card--emerald::before {
   background: linear-gradient(180deg, #10b981, #14b8a6);
-}
-
-.recommend-preview-code-block {
-  border-radius: 12px;
-  background: #0f172a;
-  padding: 14px 16px;
-  color: #e2e8f0;
-  font-size: 11px;
-  line-height: 1.7;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  white-space: pre-line;
-  overflow-x: auto;
 }
 
 .recommend-preview-metric-card {
@@ -1375,7 +1174,7 @@ onMounted(() => {
 .recommend-preview-compare-product:hover {
   transform: none;
   border-color: rgba(96, 165, 250, 0.32);
-  box-shadow: none;
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.12);
 }
 
 .dark .recommend-preview-product-card:hover,
@@ -1396,10 +1195,9 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   padding: 4px 9px;
-  border-radius: 999px;
+  border-radius: 4px;
   font-size: 11px;
   font-weight: 700;
-  backdrop-filter: blur(8px);
 }
 
 .recommend-preview-rank-pill {
@@ -1450,9 +1248,9 @@ onMounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 18px;
-  border-radius: var(--radius-md);
+  border-radius: 8px;
   border: 1px solid rgba(250, 204, 21, 0.28);
-  background: linear-gradient(135deg, rgba(254, 252, 232, 0.92), rgba(255, 247, 237, 0.9));
+  background: rgba(255, 251, 235, 0.94);
   padding: 16px 18px;
 }
 
@@ -1472,7 +1270,7 @@ onMounted(() => {
 :deep(.recommend-preview-compare-tabs .el-tabs__item) {
   height: auto;
   padding: 10px 16px;
-  border-radius: 12px 12px 0 0;
+  border-radius: 4px 4px 0 0;
   color: #64748b;
 }
 
@@ -1596,7 +1394,7 @@ onMounted(() => {
 .recommend-preview-tag-row em {
   max-width: 100%;
   padding: 3px 7px;
-  border-radius: 6px;
+  border-radius: 4px;
   background: rgba(15, 118, 110, 0.08);
   color: #0f766e;
   font-size: 12px;
@@ -1637,6 +1435,55 @@ onMounted(() => {
   color: #64748b;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.recommend-preview-sample-users {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.recommend-preview-sample-users__label {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.recommend-preview-sample-users__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #334155;
+  transition: all 0.2s ease;
+}
+
+.recommend-preview-sample-users__chip strong {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.recommend-preview-sample-users__chip span {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.recommend-preview-sample-users__chip:hover:not(:disabled),
+.recommend-preview-sample-users__chip--active {
+  border-color: rgba(6, 182, 212, 0.42);
+  background: rgba(236, 254, 255, 0.92);
+  color: #0f766e;
+}
+
+.recommend-preview-sample-users__chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 @media (max-width: 960px) {

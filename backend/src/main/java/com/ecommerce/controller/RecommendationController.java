@@ -11,6 +11,7 @@ import com.ecommerce.entity.UserBehavior;
 import com.ecommerce.mapper.ProductMapper;
 import com.ecommerce.mapper.UserBehaviorMapper;
 import com.ecommerce.recommendation.UserPreferenceBootstrapService;
+import com.ecommerce.recommendation.ColdStartRecommendationService;
 import com.ecommerce.recommendation.RecommendationGovernanceService;
 import com.ecommerce.recommendation.RecommendationRealtimeCacheService;
 import com.ecommerce.recommendation.CollaborativeFiltering;
@@ -20,11 +21,13 @@ import com.ecommerce.service.RecommendationAsyncService;
 import com.ecommerce.service.RecommendationService;
 import com.ecommerce.service.SeckillService;
 import com.ecommerce.service.StreamRealtimeRedisSinkService;
+import com.ecommerce.util.ProductVisibilityUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,6 +35,7 @@ import javax.servlet.http.HttpServletRequest;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 @RestController
@@ -109,7 +113,13 @@ public class RecommendationController {
     private UserPreferenceBootstrapService userPreferenceBootstrapService;
 
     @Autowired
+    private ColdStartRecommendationService coldStartRecommendationService;
+
+    @Autowired
     private SeckillService seckillService;
+
+    @Autowired(required = false)
+    private JdbcTemplate jdbcTemplate;
 
     @PostMapping("/interest")
     @Operation(summary = "保存兴趣偏好", description = "新用户选择感兴趣的分类,写入偏好表用于冷启动推荐。")
@@ -194,10 +204,15 @@ public class RecommendationController {
         Map<String, Integer> categoryPrefs = pref == null ? null : pref.getCategoryPreferences();
         hasSelectedInterest = categoryPrefs != null && !categoryPrefs.isEmpty();
         showInterestPopup = !hasSelectedInterest;
+        List<String> selectedCategoryIds = categoryPrefs == null
+                ? Collections.emptyList()
+                : new ArrayList<>(categoryPrefs.keySet());
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("showInterestPopup", showInterestPopup);
         data.put("hasSelectedInterest", hasSelectedInterest);
+        data.put("selectedCategoryIds", selectedCategoryIds);
+        data.put("selectedCategoryCount", selectedCategoryIds.size());
         return Result.success(data);
     }
 
@@ -260,18 +275,30 @@ public class RecommendationController {
         int safeLimit = Math.min(Math.max(limit, 1), 50);
         String normalizedAlgorithm = normalizeHomeAlgorithm(algorithm);
         String visitorSeed = resolveVisitorSeed(visitorId, request);
+        String coldStartSeed = buildColdStartSeed(userId, visitorSeed);
 
         if (userId != null && userId > 0) {
             userPreferenceBootstrapService.ensureUserPreferenceInitialized(userId, false);
         }
+        boolean useBootstrapStrategy = coldStartRecommendationService.shouldUseBootstrapStrategy(userId);
+        ColdStartRecommendationService.RecommendationStage bootstrapStage = coldStartRecommendationService.resolveStage(userId);
 
         List<Product> products;
         String scene;
         if ("cf".equals(normalizedAlgorithm)) {
             scene = "collaborative_filtering";
-            products = loadCollaborativeProducts(userId, safeLimit, visitorSeed);
-            products = recommendationService.rerankFeedRecommendations(
-                    userId, products, safeLimit, scene, "home_collaborative_filtering");
+            if (userId != null && userId > 0 && useBootstrapStrategy) {
+                products = coldStartRecommendationService.buildCandidates(
+                        userId, safeLimit * 3, ColdStartRecommendationService.Strategy.COLLABORATIVE, coldStartSeed);
+                products = recommendationService.rerankFeedRecommendations(
+                        userId, products, safeLimit, scene, "cold_start_collaborative");
+                coldStartRecommendationService.applyPresentationMetadata(
+                        products, ColdStartRecommendationService.Strategy.COLLABORATIVE, bootstrapStage, null);
+            } else {
+                products = loadCollaborativeProducts(userId, safeLimit, visitorSeed);
+                products = recommendationService.rerankFeedRecommendations(
+                        userId, products, safeLimit, scene, "home_collaborative_filtering");
+            }
         } else if ("hot".equals(normalizedAlgorithm)) {
             scene = SCENE_HOT;
             if (userId != null && userId > 0) {
@@ -284,7 +311,14 @@ public class RecommendationController {
             }
         } else {
             scene = SCENE_GUESS_YOU_LIKE;
-            if (userId != null && userId > 0) {
+            if (userId != null && userId > 0 && useBootstrapStrategy) {
+                products = coldStartRecommendationService.buildCandidates(
+                        userId, safeLimit * 3, ColdStartRecommendationService.Strategy.HYBRID, coldStartSeed);
+                products = recommendationService.rerankFeedRecommendations(
+                        userId, products, safeLimit, scene, "cold_start_hybrid");
+                coldStartRecommendationService.applyPresentationMetadata(
+                        products, ColdStartRecommendationService.Strategy.HYBRID, bootstrapStage, null);
+            } else if (userId != null && userId > 0) {
                 products = recommendationService.guessYouLike(userId, safeLimit, true);
                 attachAlgorithmReason(products, "混合算法", "融合协同过滤、内容偏好与商品热度综合排序");
             } else {
@@ -308,7 +342,7 @@ public class RecommendationController {
     @Operation(summary = "获取实时热榜多窗口概览", description = "一次性返回 1m / 1h / 1d 热榜列表。")
     public Result<?> realtimeHotOverview(@RequestParam(defaultValue = "10") int limit) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("lastUpdate", null);
+        payload.put("lastUpdate", resolveRealtimeHotOverviewLastUpdate());
 
         Map<String, List<Map<String, Object>>> windows = new LinkedHashMap<>();
         windows.put("1m", loadRealtimeHotProducts("1m", limit));
@@ -371,12 +405,31 @@ public class RecommendationController {
     }
 
     private List<Product> sanitizeRecommendationProducts(List<Product> products, int limit) {
-        List<Product> filtered = seckillService.excludeShelfSeckillProducts(products);
-        if (filtered.isEmpty()) {
-            return filtered;
+        if (products == null || products.isEmpty()) {
+            return Collections.emptyList();
         }
-        int safeLimit = Math.max(1, Math.min(limit, filtered.size()));
-        return new ArrayList<>(filtered.subList(0, safeLimit));
+        int safeLimit = Math.max(1, limit);
+        List<Product> filtered = new ArrayList<>(Math.min(products.size(), safeLimit));
+        Set<Long> seen = new LinkedHashSet<>();
+        for (Product product : seckillService.excludeShelfSeckillProducts(products)) {
+            if (product == null || product.getId() == null) {
+                continue;
+            }
+            if (!Objects.equals(product.getStatus(), Constants.ProductStatus.ON_SHELF)) {
+                continue;
+            }
+            if (ProductVisibilityUtil.shouldHideFromRecommendation(product)) {
+                continue;
+            }
+            if (!seen.add(product.getId())) {
+                continue;
+            }
+            filtered.add(product);
+            if (filtered.size() >= safeLimit) {
+                break;
+            }
+        }
+        return filtered;
     }
 
     private List<Product> loadHybridProducts(Long userId, int limit, String visitorSeed) {
@@ -875,6 +928,17 @@ public class RecommendationController {
         return firstNonBlank(userAgent, "guest") + ":" + firstNonBlank(remoteAddr, "0.0.0.0");
     }
 
+    private String buildColdStartSeed(Long userId, String visitorSeed) {
+        StringBuilder builder = new StringBuilder("member-cold-start");
+        if (userId != null && userId > 0) {
+            builder.append(':').append(userId);
+        }
+        if (StringUtils.hasText(visitorSeed)) {
+            builder.append(':').append(visitorSeed.trim());
+        }
+        return builder.toString();
+    }
+
     private String firstNonBlank(String value, String fallback) {
         return StringUtils.hasText(value) ? value.trim() : fallback;
     }
@@ -1260,12 +1324,20 @@ public class RecommendationController {
     private List<Map<String, Object>> loadRealtimeHotProducts(String window, int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 50));
         String safeWindow = normalizeWindow(window);
+        List<Map<String, Object>> databaseRows = loadRealtimeHotRowsFromDatabase(safeWindow, safeLimit);
+
+        if ("1h".equals(safeWindow) || "1d".equals(safeWindow)) {
+            if (!databaseRows.isEmpty()) {
+                return databaseRows;
+            }
+            return loadHotFallback(safeWindow, safeLimit);
+        }
 
         List<Map<String, Object>> rows = streamRealtimeRedisSinkService == null
                 ? Collections.emptyList()
                 : streamRealtimeRedisSinkService.getHotProducts(safeWindow, safeLimit);
         if (rows == null || rows.isEmpty()) {
-            return loadHotFallback(safeWindow, safeLimit);
+            return !databaseRows.isEmpty() ? databaseRows : loadHotFallback(safeWindow, safeLimit);
         }
 
         List<Long> productIds = new ArrayList<>();
@@ -1292,7 +1364,8 @@ public class RecommendationController {
             Product product = productId == null ? null : productMap.get(productId);
             if (product == null
                     || product.getId() == null
-                    || !Objects.equals(product.getStatus(), Constants.ProductStatus.ON_SHELF)) {
+                    || !Objects.equals(product.getStatus(), Constants.ProductStatus.ON_SHELF)
+                    || ProductVisibilityUtil.shouldHideFromRecommendation(product)) {
                 continue;
             }
 
@@ -1310,17 +1383,33 @@ public class RecommendationController {
             result.add(item);
         }
         if (result.size() < safeLimit) {
-            appendRealtimeHotFallback(result, safeWindow, safeLimit);
+            appendRealtimeHotCandidates(result, databaseRows, safeWindow, safeLimit);
         }
         return result;
     }
 
-    private void appendRealtimeHotFallback(List<Map<String, Object>> result, String window, int limit) {
+    private void appendRealtimeHotCandidates(List<Map<String, Object>> result,
+                                             List<Map<String, Object>> databaseRows,
+                                             String window,
+                                             int limit) {
         Set<Long> existingIds = new HashSet<>();
         for (Map<String, Object> item : result) {
             Long productId = parseLong(item.get("productId"));
             if (productId != null) {
                 existingIds.add(productId);
+            }
+        }
+
+        for (Map<String, Object> item : databaseRows) {
+            Long productId = parseLong(item.get("productId"));
+            if (productId == null || existingIds.contains(productId)) {
+                continue;
+            }
+            item.put("rank", result.size() + 1);
+            result.add(item);
+            existingIds.add(productId);
+            if (result.size() >= limit) {
+                return;
             }
         }
 
@@ -1339,22 +1428,48 @@ public class RecommendationController {
         }
     }
 
-    private List<Map<String, Object>> loadHotFallback(String window, int limit) {
-        List<Product> products = productMapper.selectHotProducts(limit);
-        if (products == null || products.isEmpty()) {
+    private List<Map<String, Object>> loadRealtimeHotRowsFromDatabase(String window, int limit) {
+        if (jdbcTemplate == null) {
+            return Collections.emptyList();
+        }
+        int candidateLimit = Math.max(limit * 4, 40);
+        List<HotWindowScoreRow> scoreRows = queryWindowHotScoreRows(window, candidateLimit);
+        if (scoreRows.isEmpty()) {
             return Collections.emptyList();
         }
 
-        List<Map<String, Object>> result = new ArrayList<>();
-        int rank = 1;
-        for (Product product : products) {
-            if (product == null || product.getId() == null) {
+        List<Long> productIds = new ArrayList<>();
+        Map<Long, Double> rawScoreById = new LinkedHashMap<>();
+        for (HotWindowScoreRow row : scoreRows) {
+            if (row == null || row.productId == null || row.productId <= 0L || rawScoreById.containsKey(row.productId)) {
                 continue;
             }
+            productIds.add(row.productId);
+            rawScoreById.put(row.productId, row.score);
+        }
+        if (productIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Map<Long, Product> productMap = new LinkedHashMap<>();
+        for (Product product : productMapper.selectByIds(productIds)) {
+            if (product != null && product.getId() != null) {
+                productMap.put(product.getId(), product);
+            }
+        }
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Long productId : productIds) {
+            Product product = productMap.get(productId);
+            if (product == null
+                    || !Objects.equals(product.getStatus(), Constants.ProductStatus.ON_SHELF)
+                    || ProductVisibilityUtil.shouldHideFromRecommendation(product)) {
+                continue;
+            }
+            double blendedScore = blendRealtimeHotWindowScore(product, rawScoreById.get(productId), window);
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("rank", rank++);
             item.put("productId", product.getId());
-            item.put("score", estimateFallbackScore(product));
+            item.put("score", BigDecimal.valueOf(blendedScore).setScale(2, RoundingMode.HALF_UP));
             item.put("window", window);
             item.put("productName", product.getName());
             item.put("productImage", product.getImage());
@@ -1364,7 +1479,199 @@ public class RecommendationController {
             item.put("rating", product.getRating());
             result.add(item);
         }
+
+        result.sort((left, right) -> {
+            int scoreCompare = Double.compare(parseDouble(right.get("score")), parseDouble(left.get("score")));
+            if (scoreCompare != 0) {
+                return scoreCompare;
+            }
+            return Long.compare(
+                    parseLong(right.get("productId")) == null ? 0L : parseLong(right.get("productId")),
+                    parseLong(left.get("productId")) == null ? 0L : parseLong(left.get("productId")));
+        });
+
+        List<Map<String, Object>> ranked = new ArrayList<>();
+        int rank = 1;
+        for (Map<String, Object> item : result) {
+            item.put("rank", rank++);
+            ranked.add(item);
+            if (ranked.size() >= limit) {
+                break;
+            }
+        }
+        return ranked;
+    }
+
+    private List<HotWindowScoreRow> queryWindowHotScoreRows(String window, int limit) {
+        String intervalSql = resolveWindowIntervalSql(window);
+        String sql =
+                "SELECT t.product_id AS productId, SUM(t.score) AS score " +
+                "FROM (" +
+                "  SELECT re.product_id, " +
+                "         CASE " +
+                "           WHEN re.event_type = 'exposure' THEN 0.2 " +
+                "           WHEN re.event_type = 'click' THEN 1.2 " +
+                "           WHEN re.event_type = 'dwell' THEN GREATEST(0.6, LEAST(3.0, COALESCE(re.duration, 30) / 30.0)) " +
+                "           WHEN re.event_type = 'add_cart' THEN 3.0 " +
+                "           WHEN re.event_type = 'order' THEN 6.0 " +
+                "           WHEN re.event_type = 'refund' THEN -4.0 " +
+                "           ELSE 1.0 " +
+                "         END AS score " +
+                "  FROM recommendation_event re " +
+                "  WHERE re.product_id IS NOT NULL " +
+                "    AND COALESCE(re.event_time, re.create_time) >= DATE_SUB(NOW(), INTERVAL " + intervalSql + ") " +
+                "  UNION ALL " +
+                "  SELECT ub.product_id, " +
+                "         CASE " +
+                "           WHEN ub.behavior_type = 'view' THEN GREATEST(0.5, LEAST(2.0, COALESCE(ub.duration, 30) / 45.0)) " +
+                "           WHEN ub.behavior_type = 'favorite' THEN 2.5 " +
+                "           WHEN ub.behavior_type = 'cart' THEN 3.0 " +
+                "           WHEN ub.behavior_type = 'purchase' THEN 6.0 " +
+                "           ELSE 1.0 " +
+                "         END AS score " +
+                "  FROM user_behavior ub " +
+                "  WHERE ub.product_id IS NOT NULL " +
+                "    AND ub.create_time >= DATE_SUB(NOW(), INTERVAL " + intervalSql + ") " +
+                ") t " +
+                "GROUP BY t.product_id " +
+                "HAVING SUM(t.score) > 0 " +
+                "ORDER BY score DESC, productId DESC " +
+                "LIMIT ?";
+        try {
+            return jdbcTemplate.query(
+                    sql,
+                    (rs, rowNum) -> new HotWindowScoreRow(rs.getLong("productId"), rs.getDouble("score")),
+                    limit);
+        } catch (Exception ignore) {
+            return Collections.emptyList();
+        }
+    }
+
+    private String resolveWindowIntervalSql(String window) {
+        if ("1m".equals(window)) {
+            return "1 MINUTE";
+        }
+        if ("1d".equals(window)) {
+            return "1 DAY";
+        }
+        return "1 HOUR";
+    }
+
+    private double blendRealtimeHotWindowScore(Product product, Double realtimeScore, String window) {
+        double baseScore = realtimeScore == null ? 0D : realtimeScore;
+        long salesCount = product.getSalesCount() == null ? 0L : product.getSalesCount();
+        double rating = product.getRating() == null ? 0D : product.getRating().doubleValue();
+        long freshnessMinutes = resolveFreshnessMinutes(product);
+        double freshnessMinuteBoost = Math.max(0D, 90D - Math.min(freshnessMinutes, 90L)) / 90D;
+        double freshnessHourBoost = Math.max(0D, 24D - Math.min(freshnessMinutes / 60D, 24D)) / 24D;
+        double freshnessDayBoost = Math.max(0D, 7D - Math.min(freshnessMinutes / 1440D, 7D)) / 7D;
+        double longTailBoost = Math.log1p(Math.max(0L, salesCount));
+
+        if ("1m".equals(window)) {
+            return baseScore * 1.15D + freshnessMinuteBoost * 2.2D + rating * 0.25D;
+        }
+        if ("1h".equals(window)) {
+            return baseScore * 1.0D + freshnessHourBoost * 1.6D + longTailBoost * 0.55D + rating * 0.35D;
+        }
+        return baseScore * 0.58D + longTailBoost * 3.1D + rating * 1.4D + freshnessDayBoost * 1.2D;
+    }
+
+    private String resolveRealtimeHotOverviewLastUpdate() {
+        if (jdbcTemplate == null) {
+            return null;
+        }
+        String sql =
+                "SELECT DATE_FORMAT(MAX(latest_time), '%Y-%m-%d %H:%i:%s') AS lastUpdate " +
+                "FROM (" +
+                "  SELECT MAX(COALESCE(event_time, create_time)) AS latest_time FROM recommendation_event " +
+                "  UNION ALL " +
+                "  SELECT MAX(create_time) AS latest_time FROM user_behavior" +
+                ") t";
+        try {
+            return jdbcTemplate.query(sql, rs -> rs.next() ? rs.getString("lastUpdate") : null);
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private List<Map<String, Object>> loadHotFallback(String window, int limit) {
+        int candidateLimit = Math.max(limit, Math.min(limit * 4, 80));
+        List<Product> products = productMapper.selectHotProducts(candidateLimit);
+        if (products == null || products.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Product> rankedProducts = new ArrayList<>();
+        for (Product product : products) {
+            if (product == null || product.getId() == null) {
+                continue;
+            }
+            rankedProducts.add(product);
+        }
+        rankedProducts.sort((left, right) -> {
+            int scoreCompare = Double.compare(scoreFallbackProduct(right, window), scoreFallbackProduct(left, window));
+            if (scoreCompare != 0) {
+                return scoreCompare;
+            }
+            int salesCompare = Long.compare(
+                    right.getSalesCount() == null ? 0L : right.getSalesCount(),
+                    left.getSalesCount() == null ? 0L : left.getSalesCount());
+            if (salesCompare != 0) {
+                return salesCompare;
+            }
+            return Long.compare(
+                    right.getId() == null ? 0L : right.getId(),
+                    left.getId() == null ? 0L : left.getId());
+        });
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        int rank = 1;
+        for (Product product : rankedProducts) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("rank", rank++);
+            item.put("productId", product.getId());
+            item.put("score", BigDecimal.valueOf(scoreFallbackProduct(product, window)).setScale(2, RoundingMode.HALF_UP));
+            item.put("window", window);
+            item.put("productName", product.getName());
+            item.put("productImage", product.getImage());
+            item.put("categoryName", product.getCategoryName());
+            item.put("price", product.getPrice());
+            item.put("salesCount", product.getSalesCount());
+            item.put("rating", product.getRating());
+            result.add(item);
+            if (result.size() >= limit) {
+                break;
+            }
+        }
         return result;
+    }
+
+    private double scoreFallbackProduct(Product product, String window) {
+        long salesCount = product.getSalesCount() == null ? 0L : product.getSalesCount();
+        double rating = product.getRating() == null ? 0D : product.getRating().doubleValue();
+        long freshnessMinutes = resolveFreshnessMinutes(product);
+        double freshnessMinuteBoost = Math.max(0D, 180D - Math.min(freshnessMinutes, 180L)) / 180D;
+        double freshnessHourBoost = Math.max(0D, 24D - Math.min(freshnessMinutes / 60D, 24D)) / 24D;
+        double freshnessDayBoost = Math.max(0D, 7D - Math.min(freshnessMinutes / 1440D, 7D)) / 7D;
+
+        if ("1m".equals(window)) {
+            return freshnessMinuteBoost * 100D + salesCount * 0.08D + rating * 10D;
+        }
+        if ("1h".equals(window)) {
+            return freshnessHourBoost * 48D + salesCount * 0.22D + rating * 9D;
+        }
+        return salesCount * 0.7D + rating * 12D + freshnessDayBoost * 10D;
+    }
+
+    private long resolveFreshnessMinutes(Product product) {
+        LocalDateTime referenceTime = product.getUpdateTime() != null
+                ? product.getUpdateTime()
+                : product.getCreateTime();
+        if (referenceTime == null) {
+            return 7L * 24L * 60L;
+        }
+        long minutes = ChronoUnit.MINUTES.between(referenceTime, LocalDateTime.now());
+        return Math.max(0L, minutes);
     }
 
     private BigDecimal estimateFallbackScore(Product product) {
@@ -1397,6 +1704,30 @@ public class RecommendationController {
             return (long) Double.parseDouble(String.valueOf(raw).trim());
         } catch (Exception ignore) {
             return null;
+        }
+    }
+
+    private double parseDouble(Object raw) {
+        if (raw == null) {
+            return 0D;
+        }
+        if (raw instanceof Number) {
+            return ((Number) raw).doubleValue();
+        }
+        try {
+            return Double.parseDouble(String.valueOf(raw).trim());
+        } catch (Exception ignore) {
+            return 0D;
+        }
+    }
+
+    private static class HotWindowScoreRow {
+        private final Long productId;
+        private final double score;
+
+        private HotWindowScoreRow(Long productId, double score) {
+            this.productId = productId;
+            this.score = score;
         }
     }
 }

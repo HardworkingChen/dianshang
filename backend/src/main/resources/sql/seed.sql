@@ -1105,23 +1105,30 @@ ON DUPLICATE KEY UPDATE
 
 -- ============================================
 -- 小程序固定体验账号与推荐归因数据
--- 固定体验账号: 16666666666 / 123456
+-- 固定体验账号已移除，保留相似画像账号用于推荐联调
 -- 相似画像账号: 16666666667 / 16666666668 / 16666666669
 -- ============================================
+SET @deleted_demo_user_id = (
+  SELECT id FROM `user` WHERE `phone` = '16666666666' LIMIT 1
+);
+
+DELETE FROM `recommendation_event` WHERE `user_id` = @deleted_demo_user_id;
+DELETE FROM `analytics_recommendation_exposure` WHERE `user_id` = @deleted_demo_user_id;
+DELETE FROM `user_behavior` WHERE `user_id` = @deleted_demo_user_id;
+DELETE FROM `address` WHERE `user_id` = @deleted_demo_user_id;
+DELETE FROM `user_preference` WHERE `user_id` = @deleted_demo_user_id;
+DELETE FROM `favorite` WHERE `user_id` = @deleted_demo_user_id;
+DELETE FROM `cart` WHERE `user_id` = @deleted_demo_user_id;
+DELETE FROM `coupon_record` WHERE `user_id` = @deleted_demo_user_id;
+DELETE FROM `browse_history` WHERE `user_id` = @deleted_demo_user_id;
+DELETE FROM `search_history` WHERE `user_id` = @deleted_demo_user_id;
+DELETE FROM `user` WHERE `id` = @deleted_demo_user_id;
+SET @deleted_demo_user_id = NULL;
+
 INSERT IGNORE INTO `user` (`username`, `password`, `nickname`, `role`, `phone`, `email`, `balance`, `email_verified`, `avatar`) VALUES
-('16666666666', '$2a$10$5A3U8xoCIITLjqFn7nGWl.b/.D154d9AwEyjLzEkdFpbRnfWbVbPa', '数码优选用户', 'user', '16666666666', 'demo16666666666@competition.local', 30000.00, 1, 'https://api.dicebear.com/7.x/adventurer/svg?seed=CompetitionDemo'),
 ('16666666667', '$2a$10$5A3U8xoCIITLjqFn7nGWl.b/.D154d9AwEyjLzEkdFpbRnfWbVbPa', '相似用户A', 'user', '16666666667', 'demo16666666667@competition.local', 18000.00, 1, 'https://api.dicebear.com/7.x/adventurer/svg?seed=SimilarA'),
 ('16666666668', '$2a$10$5A3U8xoCIITLjqFn7nGWl.b/.D154d9AwEyjLzEkdFpbRnfWbVbPa', '相似用户B', 'user', '16666666668', 'demo16666666668@competition.local', 22000.00, 1, 'https://api.dicebear.com/7.x/adventurer/svg?seed=SimilarB'),
 ('16666666669', '$2a$10$5A3U8xoCIITLjqFn7nGWl.b/.D154d9AwEyjLzEkdFpbRnfWbVbPa', '相似用户C', 'user', '16666666669', 'demo16666666669@competition.local', 16000.00, 1, 'https://api.dicebear.com/7.x/adventurer/svg?seed=SimilarC');
-
-INSERT INTO `user_preference` (`user_id`, `category_preferences`, `tag_preferences`, `price_range_min`, `price_range_max`)
-SELECT u.id, '{"1":10,"2":8,"8":4,"7":2}', '{"旗舰":6,"苹果":5,"华为":5,"轻薄":4,"耳机":3,"办公":3}', 800.00, 16000.00
-FROM `user` u WHERE u.phone = '16666666666'
-ON DUPLICATE KEY UPDATE
-  `category_preferences` = VALUES(`category_preferences`),
-  `tag_preferences` = VALUES(`tag_preferences`),
-  `price_range_min` = VALUES(`price_range_min`),
-  `price_range_max` = VALUES(`price_range_max`);
 
 INSERT INTO `user_preference` (`user_id`, `category_preferences`, `tag_preferences`, `price_range_min`, `price_range_max`)
 SELECT u.id, '{"1":9,"2":7,"8":3}', '{"旗舰":5,"苹果":5,"华为":4,"轻薄":4,"降噪":3}', 900.00, 15000.00
@@ -1135,18 +1142,13 @@ ON DUPLICATE KEY UPDATE
 INSERT INTO `address` (`user_id`, `receiver_name`, `receiver_phone`, `province`, `city`, `district`, `detail`, `is_default`)
 SELECT u.id, u.nickname, u.phone, '河南省', '郑州市', '金水区', '未来路优购中心 1 号', 1
 FROM `user` u
-WHERE u.phone IN ('16666666666','16666666667','16666666668','16666666669')
+WHERE u.phone IN ('16666666667','16666666668','16666666669')
   AND NOT EXISTS (SELECT 1 FROM `address` a WHERE a.user_id = u.id AND a.receiver_phone = u.phone);
 
 INSERT INTO `user_behavior` (`user_id`, `product_id`, `behavior_type`, `duration`, `create_time`)
 SELECT u.id, b.product_id, b.behavior_type, b.duration, b.create_time
 FROM `user` u
 JOIN (
-  SELECT '16666666666' AS phone, 1 AS product_id, 'view' AS behavior_type, 120 AS duration, DATE_SUB(NOW(), INTERVAL 5 DAY) AS create_time UNION ALL
-  SELECT '16666666666', 1, 'cart', 30, DATE_SUB(NOW(), INTERVAL 4 DAY) UNION ALL
-  SELECT '16666666666', 2, 'favorite', 60, DATE_SUB(NOW(), INTERVAL 4 DAY) UNION ALL
-  SELECT '16666666666', 3, 'view', 90, DATE_SUB(NOW(), INTERVAL 3 DAY) UNION ALL
-  SELECT '16666666666', 5, 'purchase', 20, DATE_SUB(NOW(), INTERVAL 2 DAY) UNION ALL
   SELECT '16666666667', 1, 'purchase', 80, DATE_SUB(NOW(), INTERVAL 6 DAY) UNION ALL
   SELECT '16666666667', 2, 'cart', 55, DATE_SUB(NOW(), INTERVAL 5 DAY) UNION ALL
   SELECT '16666666667', 4, 'purchase', 40, DATE_SUB(NOW(), INTERVAL 4 DAY) UNION ALL
@@ -1172,8 +1174,6 @@ INSERT INTO `user_behavior` (`user_id`, `behavior_type`, `search_keyword`, `crea
 SELECT u.id, 'search', s.keyword, s.create_time
 FROM `user` u
 JOIN (
-  SELECT '16666666666' AS phone, '旗舰手机' AS keyword, DATE_SUB(NOW(), INTERVAL 5 DAY) AS create_time UNION ALL
-  SELECT '16666666666', '轻薄笔记本', DATE_SUB(NOW(), INTERVAL 4 DAY) UNION ALL
   SELECT '16666666667', '降噪耳机', DATE_SUB(NOW(), INTERVAL 3 DAY) UNION ALL
   SELECT '16666666668', '苹果手机', DATE_SUB(NOW(), INTERVAL 3 DAY) UNION ALL
   SELECT '16666666669', '办公数码', DATE_SUB(NOW(), INTERVAL 2 DAY)
@@ -1190,10 +1190,8 @@ INSERT INTO `analytics_recommendation_exposure`
 SELECT e.exposure_token, e.request_token, u.id, e.product_id, e.scene, e.rank_no, e.algorithm, e.source_type, e.reason_type, e.model_version, e.segment_code, e.segment_name, e.exposure_time, e.click_time, e.cart_time, e.purchase_time, NOW()
 FROM `user` u
 JOIN (
-  SELECT '16666666666' AS phone, 'demo_cf_166_04' AS exposure_token, 'demo_req_166_cf' AS request_token, 4 AS product_id, 'collaborative_filtering' AS scene, 1 AS rank_no, 'cf' AS algorithm, 'snapshot' AS source_type, 'SIMILAR_USERS' AS reason_type, 'competition-cf-v1' AS model_version, 'S1' AS segment_code, '高价值数码人群' AS segment_name, DATE_SUB(NOW(), INTERVAL 2 DAY) AS exposure_time, DATE_SUB(NOW(), INTERVAL 2 DAY) AS click_time, DATE_SUB(NOW(), INTERVAL 2 DAY) AS cart_time, DATE_SUB(NOW(), INTERVAL 1 DAY) AS purchase_time UNION ALL
-  SELECT '16666666666', 'demo_cf_166_06', 'demo_req_166_cf', 6, 'collaborative_filtering', 2, 'cf', 'snapshot', 'SIMILAR_USERS', 'competition-cf-v1', 'S1', '高价值数码人群', DATE_SUB(NOW(), INTERVAL 2 DAY), DATE_SUB(NOW(), INTERVAL 2 DAY), NULL, NULL UNION ALL
-  SELECT '16666666666', 'demo_hot_166_08', 'demo_req_166_hot', 8, 'hot', 3, 'hot', 'live', 'HOT_TREND', 'competition-hot-v1', 'S1', '高价值数码人群', DATE_SUB(NOW(), INTERVAL 1 DAY), NULL, NULL, NULL
-) e ON e.phone = u.phone
+  SELECT NULL AS phone, NULL AS exposure_token, NULL AS request_token, NULL AS product_id, NULL AS scene, NULL AS rank_no, NULL AS algorithm, NULL AS source_type, NULL AS reason_type, NULL AS model_version, NULL AS segment_code, NULL AS segment_name, NULL AS exposure_time, NULL AS click_time, NULL AS cart_time, NULL AS purchase_time
+) e ON 1 = 0
 ON DUPLICATE KEY UPDATE
   `click_time` = VALUES(`click_time`),
   `cart_time` = VALUES(`cart_time`),
@@ -1204,14 +1202,8 @@ INSERT INTO `recommendation_event` (`user_id`, `product_id`, `event_type`, `scen
 SELECT u.id, ev.product_id, ev.event_type, ev.scene, ev.recommendation_token, ev.amount, ev.event_time, ev.metadata
 FROM `user` u
 JOIN (
-  SELECT '16666666666' AS phone, 4 AS product_id, 'exposure' AS event_type, 'collaborative_filtering' AS scene, 'demo_cf_166_04' AS recommendation_token, NULL AS amount, DATE_SUB(NOW(), INTERVAL 2 DAY) AS event_time, '{"demo":true,"source":"similar_users"}' AS metadata UNION ALL
-  SELECT '16666666666', 4, 'click', 'collaborative_filtering', 'demo_cf_166_04', NULL, DATE_SUB(NOW(), INTERVAL 2 DAY), '{"demo":true}' UNION ALL
-  SELECT '16666666666', 4, 'add_cart', 'collaborative_filtering', 'demo_cf_166_04', NULL, DATE_SUB(NOW(), INTERVAL 2 DAY), '{"demo":true}' UNION ALL
-  SELECT '16666666666', 4, 'order', 'collaborative_filtering', 'demo_cf_166_04', 6999.00, DATE_SUB(NOW(), INTERVAL 1 DAY), '{"demo":true,"attribution":"paid"}' UNION ALL
-  SELECT '16666666666', 6, 'exposure', 'collaborative_filtering', 'demo_cf_166_06', NULL, DATE_SUB(NOW(), INTERVAL 2 DAY), '{"demo":true,"source":"similar_users"}' UNION ALL
-  SELECT '16666666666', 6, 'click', 'collaborative_filtering', 'demo_cf_166_06', NULL, DATE_SUB(NOW(), INTERVAL 2 DAY), '{"demo":true}' UNION ALL
-  SELECT '16666666666', 8, 'exposure', 'hot', 'demo_hot_166_08', NULL, DATE_SUB(NOW(), INTERVAL 1 DAY), '{"demo":true,"source":"hot"}'
-) ev ON ev.phone = u.phone
+  SELECT NULL AS phone, NULL AS product_id, NULL AS event_type, NULL AS scene, NULL AS recommendation_token, NULL AS amount, NULL AS event_time, NULL AS metadata
+) ev ON 1 = 0
 WHERE NOT EXISTS (
   SELECT 1 FROM `recommendation_event` old
   WHERE old.user_id = u.id

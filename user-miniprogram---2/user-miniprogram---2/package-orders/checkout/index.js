@@ -107,12 +107,12 @@ Page({
 
   resolveCheckoutSource(scene = '') {
     const value = `${scene || ''}`.toLowerCase()
-    if (value.includes('hot')) return '热榜召回'
-    if (value.includes('similar')) return '内容相似'
-    if (value.includes('collaborative') || value.includes('cf')) return '相似用户'
-    if (value.includes('cart')) return '购物车补购'
-    if (value.includes('search')) return '搜索意图'
-    return '实时行为'
+    if (value.includes('hot')) return '大家都在买'
+    if (value.includes('similar')) return '相似好物'
+    if (value.includes('collaborative') || value.includes('cf')) return '买过同类商品的人也在看'
+    if (value.includes('cart')) return '购物车推荐'
+    if (value.includes('search')) return '搜索相关'
+    return '最近逛过'
   },
 
   buildCheckoutSignals(goodsList = [], preview = {}, extra = {}) {
@@ -122,15 +122,15 @@ Page({
     const attribution = this.data.checkoutAttribution || this.findCheckoutAttribution(goodsList)
     return {
       couponText: couponName
-        ? `已自动匹配 ${couponName}`
-        : ((preview.availableCoupons || []).length ? '可选优惠券已按省钱优先排序' : '暂无可用券'),
+        ? `已为你选中 ${couponName}`
+        : ((preview.availableCoupons || []).length ? '可选优惠券已按更省金额排序' : '暂无可用券'),
       stockRisk: stockRiskCount > 0,
       stockText: stockRiskCount > 0
         ? `${stockRiskCount} 件商品库存发生变化`
-        : '库存状态已校验',
+        : '库存充足，可放心下单',
       priceText: priceChangedCount > 0
         ? `${priceChangedCount} 件商品存在活动价或价格变动`
-        : '价格预览已刷新',
+        : '当前价格已更新',
       splitText: preview.crossMerchantCheckout || extra.crossMerchantCheckout
         ? '跨店订单将自动拆单并按店铺券规则结算'
         : '单店订单无需拆单',
@@ -147,7 +147,7 @@ Page({
       token,
       scene,
       sourceLabel: this.resolveCheckoutSource(scene),
-      tokenText: `${token}`.slice(0, 12)
+      tokenText: `编号 ${`${token}`.slice(0, 12)}`
     }
   },
 
@@ -591,6 +591,10 @@ Page({
     }
     const coupons = this.data.availableCoupons || []
     if (!coupons.length) {
+      if (this.data.selectedCoupon && this.data.selectedCoupon.planType === 'SPLIT_COUPON') {
+        wx.showToast({ title: '已自动使用跨店最优优惠', icon: 'none' })
+        return
+      }
       wx.showToast({ title: '暂无可用优惠券', icon: 'none' })
       return
     }
@@ -598,6 +602,9 @@ Page({
   },
 
   async applySmartGuideCoupon() {
+    if (this.data.loading || this.data.submitting) {
+      return
+    }
     if (this.data.checkoutMode !== 'normal') {
       return
     }
@@ -607,8 +614,12 @@ Page({
       return
     }
     if (!guide.recommendedUserCouponId) {
+      if (guide.recommendationApplied && this.data.selectedCoupon && this.data.selectedCoupon.planType === 'SPLIT_COUPON') {
+        wx.showToast({ title: '当前已按最省组合结算', icon: 'none' })
+        return
+      }
       await this.refreshCheckoutPreview(null)
-      wx.showToast({ title: '无需用券', icon: 'none' })
+      wx.showToast({ title: '当前无需额外用券', icon: 'none' })
       return
     }
     await this.refreshCheckoutPreview(guide.recommendedUserCouponId)

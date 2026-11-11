@@ -405,6 +405,12 @@ ai:
   test-max-tokens: 64
   test-temperature: 0.2
 
+# Python LangGraph 客服 Agent 服务
+agent:
+  service:
+    url: ${AGENT_SERVICE_URL:http://localhost:8091}
+    token: ${AGENT_SERVICE_TOKEN:}
+
 aliyun:
   oss:
     endpoint: ${ALIYUN_OSS_ENDPOINT:oss-cn-your-region.aliyuncs.com}

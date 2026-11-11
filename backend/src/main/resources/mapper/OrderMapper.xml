@@ -15,6 +15,7 @@
                    COUNT(*) AS `count`,
                    IFNULL(SUM(total_amount), 0) AS amount
             FROM `order`
+            WHERE status IN (1, 2, 3)
             GROUP BY DATE(create_time)
             ORDER BY `date` DESC
             LIMIT 7

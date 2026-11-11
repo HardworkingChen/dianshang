@@ -29,6 +29,7 @@ import com.ecommerce.service.ManagementWorkbenchRealtimeService;
 import com.ecommerce.service.ModuleSwitchService;
 import com.ecommerce.service.ProductService;
 import com.ecommerce.service.RecommendationAsyncService;
+import com.ecommerce.service.RefundApplicationService;
 import com.ecommerce.utils.RefundViewUtil;
 import com.ecommerce.utils.RefundViewUtil.InterventionMeta;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -84,6 +86,9 @@ public class RefundController {
     @Autowired
     private RecommendationAsyncService recommendationAsyncService;
 
+    @Autowired
+    private RefundApplicationService refundApplicationService;
+
     @PostMapping
     public Result<?> applyRefund(@RequestBody RefundRequest refund, HttpServletRequest request) {
         moduleSwitchService.requireEnabled("refund");
@@ -91,63 +96,7 @@ public class RefundController {
             return Result.error("退款功能暂时关闭");
         }
         Long userId = (Long) request.getAttribute("userId");
-
-        if (refund.getOrderId() == null) {
-            throw new BusinessException("订单ID不能为空");
-        }
-        if (refund.getReason() == null || refund.getReason().isEmpty()) {
-            throw new BusinessException("退款原因不能为空");
-        }
-
-        Order order = orderMapper.selectById(refund.getOrderId());
-        if (order == null || !order.getUserId().equals(userId)) {
-            throw new BusinessException("订单不存在");
-        }
-        if (order.getStatus() != Constants.OrderStatus.PAID
-                && order.getStatus() != Constants.OrderStatus.SHIPPED
-                && order.getStatus() != Constants.OrderStatus.COMPLETED) {
-            throw new BusinessException("当前订单状态不支持退款");
-        }
-        Long merchantId = resolveSingleMerchantId(order.getId());
-
-        long existCount = refundMapper.selectCount(
-                new LambdaQueryWrapper<RefundRequest>()
-                        .eq(RefundRequest::getOrderId, refund.getOrderId())
-                        .in(RefundRequest::getStatus,
-                                Constants.RefundStatus.PENDING,
-                                Constants.RefundStatus.APPROVED,
-                                Constants.RefundStatus.REFUNDED));
-        if (existCount > 0) {
-            throw new BusinessException("该订单已有退款申请在处理中");
-        }
-
-        refund.setUserId(userId);
-        refund.setAmount(order.getTotalAmount());
-        refund.setStatus(Constants.RefundStatus.PENDING);
-        refund.setId(null);
-        refundMapper.insert(refund);
-
-        dispatchRefundMessage(
-                RabbitMqNames.ROUTING_REFUND_APPLIED,
-                userId,
-                "退款申请已提交",
-                "您的订单 " + order.getOrderNo() + " 退款申请已提交，请等待审核",
-                order.getId(),
-                refund.getId(),
-                order.getOrderNo(),
-                refund.getAmount()
-        );
-
-        Map<String, Object> payload = new java.util.LinkedHashMap<>();
-        payload.put("scope", "refund");
-        payload.put("refundId", refund.getId());
-        payload.put("orderId", order.getId());
-        payload.put("status", "pending");
-        managementWorkbenchRealtimeService.notifyAdmins("refund-updated", payload);
-        managementWorkbenchRealtimeService.notifyMerchant(merchantId, "refund-updated", payload);
-
-        RefundViewUtil.enrichRefundView(refund);
-        return Result.success("退款申请已提交", refund);
+        return Result.success("退款申请已提交", refundApplicationService.apply(userId, refund));
     }
 
     @GetMapping("/my")
@@ -724,12 +673,22 @@ public class RefundController {
             eventDTO.setEventType(Constants.RecommendationEventType.REFUND);
             eventDTO.setProductId(item.getProductId());
             eventDTO.setOrderId(refund.getOrderId());
-            eventDTO.setAmount(refund.getAmount());
+            eventDTO.setAmount(resolveRefundEventAmount(refund, item, orderItems.size()));
             eventDTO.setEventTime(java.time.LocalDateTime.now());
             eventDTO.setTraceId(order == null ? null : order.getOrderNo());
             eventDTO.setScene("refund_approved");
             recommendationAsyncService.recordRecommendationEventAsync(refund.getUserId(), eventDTO);
         }
+    }
+
+    private BigDecimal resolveRefundEventAmount(RefundRequest refund, OrderItem item, int orderItemCount) {
+        if (item != null && item.getSubtotal() != null && item.getSubtotal().compareTo(BigDecimal.ZERO) > 0) {
+            return item.getSubtotal();
+        }
+        if (orderItemCount <= 1 && refund != null) {
+            return refund.getAmount();
+        }
+        return null;
     }
 
     private JSONObject buildNotificationPayload(Long userId, String title, String content, String type, Long relatedId) {

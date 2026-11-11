@@ -13,4 +13,6 @@ public interface UserMapper extends BaseMapper<User> {
     int deductBalance(@Param("id") Long id, @Param("amount") BigDecimal amount);
 
     int addBalance(@Param("id") Long id, @Param("amount") BigDecimal amount);
+
+    BigDecimal selectTotalBalance();
 }

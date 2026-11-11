@@ -173,6 +173,7 @@ Page({
     const isAi = senderRole === 'ai' || item.messageType === 'ai' || !!payload.isAi
     const isSystem = (!isAi) && (!!item.isSystem || senderRole === 'system')
     const isSelf = senderRole === 'user' && !isSystem
+    const agentAction = payload.agentAction && typeof payload.agentAction === 'object' ? payload.agentAction : null
     return {
       id: item.id,
       senderRole,
@@ -181,7 +182,17 @@ Page({
       createTime: item.createTime || '',
       isAi,
       isSystem,
-      isSelf
+      isSelf,
+      agentAction,
+      agentOrders: Array.isArray(payload.agentOrders) ? payload.agentOrders : [],
+      refundHistory: Array.isArray(payload.refundHistory) ? payload.refundHistory : [],
+      agentActionDescription: agentAction && agentAction.description ? agentAction.description : '',
+      agentActionLabel: agentAction && agentAction.status === 'submitted' ?
+        (agentAction.type === 'order_cancel' ? '订单已取消' : '已提交售后申请') :
+        (agentAction && agentAction.status === 'expired' ? '确认已过期，请重新咨询' :
+          (agentAction && agentAction.type === 'order_cancel' ? '确认取消订单' : '确认提交售后申请')),
+      canConfirmAgentAction: !!(agentAction && ['refund_apply', 'order_cancel'].includes(agentAction.type) && agentAction.status === 'pending' && isAi &&
+        (agentAction.type !== 'refund_apply' || String(agentAction.description || '').trim()))
     }
   },
 
@@ -292,7 +303,16 @@ Page({
   },
 
   async sendMessage() {
-    const text = `${this.data.inputValue || ''}`.trim()
+    await this.sendPrompt(this.data.inputValue)
+  },
+
+  async sendQuickPrompt(e) {
+    const text = e && e.currentTarget && e.currentTarget.dataset.prompt
+    await this.sendPrompt(text)
+  },
+
+  async sendPrompt(prompt) {
+    const text = `${prompt || ''}`.trim()
     if (!text || this.data.sending || !this.data.conversationId) {
       return
     }
@@ -377,6 +397,58 @@ Page({
     } finally {
       this.safeSetData({ requestingHuman: false })
     }
+  },
+
+  async confirmAgentAction(e) {
+    const messageId = im.parsePositiveNumber(e && e.currentTarget && e.currentTarget.dataset.messageId)
+    const message = this.data.messages.find((item) => item.id === messageId)
+    const action = message && message.agentAction
+    if (!messageId || !action || !message.canConfirmAgentAction || this._confirmingAgentAction) {
+      return
+    }
+    const confirmed = await new Promise((resolve) => {
+      wx.showModal({
+        title: action.type === 'order_cancel' ? '确认取消订单' : '确认提交售后申请',
+        content: action.type === 'order_cancel'
+          ? `确认取消订单 ${action.orderNo || ''}？已支付金额将按系统订单流程退回账户。`
+          : `订单 ${action.orderNo || ''} 将提交退款申请，原因：${action.description}。申请后需等待商家审核。是否确认？`,
+        confirmText: action.type === 'order_cancel' ? '确认取消' : '确认提交',
+        success: (res) => resolve(!!res.confirm),
+        fail: () => resolve(false)
+      })
+    })
+    if (!confirmed) return
+    this._confirmingAgentAction = true
+    try {
+      await im.confirmAgentAction(this.data.conversationId, {
+        messageId,
+        actionId: action.id,
+        description: message.agentActionDescription
+      }, { showLoading: true })
+      await this.refreshAll({ showLoading: false })
+    } catch (error) {
+      console.error('确认售后申请失败', error)
+      wx.showToast({ title: error.message || '提交失败，请刷新后重试', icon: 'none' })
+      await this.refreshAll({ showLoading: false })
+    } finally {
+      this._confirmingAgentAction = false
+    }
+  },
+
+  onAgentActionDescriptionChange(e) {
+    const messageId = im.parsePositiveNumber(e && e.currentTarget && e.currentTarget.dataset.messageId)
+    const description = `${e && e.detail && e.detail.value || ''}`.slice(0, 200)
+    const messages = this.data.messages.map((item) => {
+      if (item.id !== messageId || !item.agentAction) return item
+      const agentAction = { ...item.agentAction, description }
+      return {
+        ...item,
+        agentAction,
+        agentActionDescription: description,
+        canConfirmAgentAction: !!(description.trim() && agentAction.status === 'pending')
+      }
+    })
+    this.safeSetData({ messages })
   },
 
   async handleEscalate() {

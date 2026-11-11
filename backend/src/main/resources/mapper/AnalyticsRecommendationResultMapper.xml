@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecommerce.mapper.AnalyticsRecommendationResultMapper">
+
+    <select id="selectLatestSnapshotDate" resultType="java.time.LocalDate">
+        SELECT snapshot_date
+        FROM analytics_recommendation_result
+        WHERE scene = #{scene}
+          AND user_id = #{userId}
+        ORDER BY snapshot_date DESC
+        LIMIT 1
+    </select>
+
+    <select id="selectSnapshotRows" resultType="com.ecommerce.entity.AnalyticsRecommendationResult">
+        SELECT *
+        FROM analytics_recommendation_result
+        WHERE scene = #{scene}
+          AND user_id = #{userId}
+          AND snapshot_date = #{snapshotDate}
+        ORDER BY rank_no ASC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

@@ -1,23 +1,35 @@
 <template>
-  <div v-loading="loading" class="space-y-6 analytics-ui-page defense-page">
-    <section class="analysis-page-header">
-      <h1 class="analysis-page-header__title">用户画像</h1>
-      <div class="analysis-page-header__meta">行为向量 · 类目权重 · 标签 · 分群</div>
-    </section>
-
-    <FeatureBrief
+  <div v-loading="loading" class="space-y-6 analytics-ui-page analytics-page-shell">
+    <AnalyticsPageHero
       kicker="用户画像"
-      title="判断依据与组成"
-      :items="portraitFeatureBrief"
+      title="画像与偏好依据"
+      summary="看行为、类目、搜索和分层依据。"
+      :meta="`依据、标签、偏好和分层结果 · 当前用户 ${resolvedUserId}`"
+      :chips="['行为向量', '品类偏好', '搜索意图', '画像分层']"
+      :highlights="portraitHeroHighlights"
     />
 
-    <section class="defense-surface portrait-query-panel">
+    <section class="analytics-panel portrait-query-panel">
       <div class="min-w-0">
-        <div class="defense-surface__eyebrow">画像检索</div>
-        <h2 class="portrait-query-panel__title">输入用户 ID，查看向量、权重、公式</h2>
-        <p class="portrait-query-panel__text">
-          画像 = 行为 + 搜索 + 类目 + 标签。
-        </p>
+        <div class="analytics-panel__eyebrow">画像检索</div>
+        <h2 class="portrait-query-panel__title">输入用户 ID，查看画像依据</h2>
+        <p class="portrait-query-panel__text">画像 = 行为 + 搜索 + 类目 + 标签。</p>
+        <div class="portrait-query-panel__formula">依据：view*1 + search*2 + cart*2 + favorite*3 + purchase*8</div>
+        <div class="portrait-query-panel__samples">
+          <span class="portrait-query-panel__sample-label">示例用户</span>
+          <button
+            v-for="item in sampleUserOptions"
+            :key="item.id"
+            type="button"
+            class="portrait-query-panel__sample-chip"
+            :class="{ 'portrait-query-panel__sample-chip--active': item.id === resolvedUserId }"
+            :disabled="loading"
+            @click="selectSampleUser(item.id)"
+          >
+            <strong>{{ item.id }}</strong>
+            <span>{{ item.label }}</span>
+          </button>
+        </div>
       </div>
       <div class="portrait-query-panel__actions">
         <el-input
@@ -27,21 +39,21 @@
           clearable
           @keyup.enter="handleLoad"
         />
-        <el-button type="primary" :loading="loading" @click="handleLoad">生成画像</el-button>
+        <el-button type="primary" :loading="loading" @click="handleLoad">查询画像</el-button>
         <el-button plain @click="goRecommendPreview">推荐预览</el-button>
       </div>
     </section>
 
-    <section class="defense-metric-strip">
-      <article v-for="item in summaryCards" :key="item.label" class="defense-metric-strip__item">
-        <span class="defense-metric-strip__label">{{ item.label }}</span>
-        <strong class="defense-metric-strip__value">{{ item.value }}</strong>
-        <span class="defense-metric-strip__sub">{{ item.sub }}</span>
+    <section class="analytics-metric-strip">
+      <article v-for="item in summaryCards" :key="item.label" class="analytics-metric-strip__item">
+        <span class="analytics-metric-strip__label">{{ item.label }}</span>
+        <strong class="analytics-metric-strip__value">{{ item.value }}</strong>
+        <span class="analytics-metric-strip__sub">{{ item.sub }}</span>
       </article>
     </section>
 
     <section class="portrait-grid">
-      <article class="defense-surface portrait-profile-card">
+      <article class="analytics-panel portrait-profile-card">
         <div class="portrait-profile-card__head">
           <el-avatar :size="58" class="portrait-avatar">
             {{ displayName.charAt(0).toUpperCase() }}
@@ -69,13 +81,13 @@
         </div>
       </article>
 
-      <article class="defense-surface portrait-section">
+      <article class="analytics-panel portrait-section">
         <div class="portrait-section__head">
           <div>
-            <div class="defense-surface__eyebrow">User Vector</div>
+            <div class="analytics-panel__eyebrow">行为</div>
             <h3 class="portrait-section__title">行为向量</h3>
           </div>
-          <el-tag type="primary" effect="plain" round>{{ behaviorRows.length }} 类行为</el-tag>
+          <el-tag type="primary" effect="plain" round>{{ behaviorRows.length }} 类</el-tag>
         </div>
         <div v-if="behaviorRows.length" class="portrait-bars">
           <div v-for="item in behaviorRows" :key="item.key" class="portrait-bar-row">
@@ -93,13 +105,13 @@
     </section>
 
     <section class="portrait-grid portrait-grid--wide">
-      <article class="defense-surface portrait-section">
+      <article class="analytics-panel portrait-section">
         <div class="portrait-section__head">
           <div>
-            <div class="defense-surface__eyebrow">Category Weight</div>
+            <div class="analytics-panel__eyebrow">类目</div>
             <h3 class="portrait-section__title">品类偏好权重</h3>
           </div>
-          <el-tag type="success" effect="plain" round>画像主干</el-tag>
+          <el-tag type="success" effect="plain" round>Top 类目</el-tag>
         </div>
         <div v-if="categoryRows.length" class="portrait-category-list">
           <div v-for="item in categoryRows" :key="item.key" class="portrait-category-list__item">
@@ -113,13 +125,13 @@
         <el-empty v-else description="暂无品类偏好" :image-size="64" />
       </article>
 
-      <article class="defense-surface portrait-section">
+      <article class="analytics-panel portrait-section">
         <div class="portrait-section__head">
           <div>
-            <div class="defense-surface__eyebrow">Tag & Query</div>
+            <div class="analytics-panel__eyebrow">标签与搜索</div>
             <h3 class="portrait-section__title">标签与搜索意图</h3>
           </div>
-          <el-tag type="warning" effect="plain" round>解释来源</el-tag>
+          <el-tag type="warning" effect="plain" round>标签依据</el-tag>
         </div>
 
         <div class="portrait-tag-area">
@@ -145,13 +157,13 @@
       </article>
     </section>
 
-    <section class="defense-surface portrait-section">
+    <section class="analytics-panel portrait-section">
       <div class="portrait-section__head">
         <div>
-          <div class="defense-surface__eyebrow">Recommend Formula</div>
-          <h3 class="portrait-section__title">画像进入推荐排序</h3>
+          <div class="analytics-panel__eyebrow">分层结论</div>
+          <h3 class="portrait-section__title">画像分层结论</h3>
         </div>
-        <el-tag effect="plain" round>推荐解释链路</el-tag>
+        <el-tag effect="plain" round>短句说明</el-tag>
       </div>
 
       <div class="portrait-layer-grid">
@@ -168,19 +180,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import AnalyticsPageHero from '../../components/analytics/AnalyticsPageHero.vue'
 import { getUserProfile } from '../../api/recommend'
-import FeatureBrief from '../../components/FeatureBrief.vue'
+import { demoPersonaSampleUsers } from '../../utils/competitionDemoData'
 
 const route = useRoute()
 const router = useRouter()
-const portraitFeatureBrief = [
-  { label: '判断依据', value: 'view / search / cart / favorite / purchase', text: '行为计数转成 user vector。' },
-  { label: '功能组成', value: 'vector + category + tag + segment', text: '向量、类目、标签、分群四层合并。' },
-  { label: '输出结果', value: '召回权重 + 排序解释', text: '给 CF、CB、Hot、Hybrid 提供输入。' },
-]
+const sampleUserOptions = demoPersonaSampleUsers
 
 const behaviorTypeMap = {
   view: '浏览',
@@ -199,6 +208,7 @@ const profile = ref({})
 const displayName = computed(() =>
   profile.value.username || profile.value.nickname || `用户 #${resolvedUserId.value || userIdInput.value || 4}`
 )
+const heroDisplayName = computed(() => profile.value.nickname || `用户 #${resolvedUserId.value || userIdInput.value || 4}`)
 
 const behaviorRows = computed(() => {
   const rows = Array.isArray(profile.value.behaviorStats) ? profile.value.behaviorStats : []
@@ -264,6 +274,28 @@ const summaryCards = computed(() => [
     sub: 'category_weight > 0',
   },
 ])
+const portraitHeroHighlights = computed(() => [
+  {
+    label: '当前用户',
+    value: heroDisplayName.value,
+    note: `ID ${resolvedUserId.value}`,
+  },
+  {
+    label: '行为商品',
+    value: String(profile.value.interactedProducts || 0),
+    note: `向量维度 ${profile.value.vectorDimension || 0}`,
+  },
+  {
+    label: '画像标签',
+    value: String(userTags.value.length),
+    note: userTags.value.length ? `Top 标签 ${userTags.value[0]}` : '等待标签数据',
+  },
+  {
+    label: '偏好品类',
+    value: String(categoryRows.value.length),
+    note: categoryRows.value.length ? `首位 ${categoryRows.value[0].label}` : '等待偏好数据',
+  },
+])
 
 const portraitProofRows = computed(() => [
   { label: '行为数据源', value: behaviorRows.value.length ? 'online' : 'empty' },
@@ -318,6 +350,14 @@ function handleLoad() {
   loadProfile(normalizeUserId(userIdInput.value))
 }
 
+function selectSampleUser(nextUserId) {
+  const normalizedUserId = normalizeUserId(nextUserId)
+  if (normalizedUserId === resolvedUserId.value && Object.keys(profile.value || {}).length) {
+    return
+  }
+  loadProfile(normalizedUserId)
+}
+
 function goRecommendPreview() {
   router.push({
     path: '/admin/recommend/preview',
@@ -325,9 +365,13 @@ function goRecommendPreview() {
   })
 }
 
-onMounted(() => {
-  loadProfile(normalizeUserId(route.query.userId || userIdInput.value))
-})
+watch(() => route.query.userId, value => {
+  const nextUserId = normalizeUserId(value || userIdInput.value)
+  if (nextUserId === resolvedUserId.value && Object.keys(profile.value || {}).length) {
+    return
+  }
+  loadProfile(nextUserId)
+}, { immediate: true })
 </script>
 
 <style scoped>
@@ -360,6 +404,88 @@ onMounted(() => {
 
 .dark .portrait-query-panel__text {
   color: rgb(203 213 225);
+}
+
+.portrait-query-panel__formula {
+  margin-top: 12px;
+  color: rgb(37 99 235);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.portrait-query-panel__samples {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.portrait-query-panel__sample-label {
+  color: rgb(100 116 139);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.portrait-query-panel__sample-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.9);
+  padding: 7px 12px;
+  color: rgb(51 65 85);
+  transition: all 0.2s ease;
+}
+
+.portrait-query-panel__sample-chip strong {
+  color: rgb(37 99 235);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.portrait-query-panel__sample-chip span {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.portrait-query-panel__sample-chip:hover:not(:disabled),
+.portrait-query-panel__sample-chip--active {
+  border-color: rgba(37, 99, 235, 0.38);
+  background: rgba(219, 234, 254, 0.88);
+  color: rgb(30 64 175);
+}
+
+.portrait-query-panel__sample-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.dark .portrait-query-panel__sample-label {
+  color: rgb(148 163 184);
+}
+
+.dark .portrait-query-panel__sample-chip {
+  border-color: rgba(71, 85, 105, 0.9);
+  background: rgba(15, 23, 42, 0.72);
+  color: rgb(226 232 240);
+}
+
+.dark .portrait-query-panel__sample-chip strong {
+  color: rgb(125 211 252);
+}
+
+.dark .portrait-query-panel__sample-chip:hover:not(:disabled),
+.dark .portrait-query-panel__sample-chip--active {
+  border-color: rgba(56, 189, 248, 0.52);
+  background: rgba(8, 47, 73, 0.8);
+  color: rgb(224 242 254);
+}
+
+.dark .portrait-query-panel__formula {
+  color: rgb(125 211 252);
 }
 
 .portrait-query-panel__actions {

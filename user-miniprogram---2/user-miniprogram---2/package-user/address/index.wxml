@@ -12,7 +12,6 @@
             <view class="select-tag" wx:if="{{selectMode}}">点击使用</view>
           </view>
           <view class="address-detail">{{item.province}}{{item.city}}{{item.district}} {{item.detail}}</view>
-          <view class="address-tip" wx:if="{{item.isDefault}}">下单时会优先使用这条地址</view>
         </view>
         <view class="address-actions">
           <view class="action-btn primary" bindtap="selectAddress" data-item="{{item}}" wx:if="{{selectMode}}">立即使用</view>
@@ -52,15 +51,6 @@
           <view class="assist-btn secondary" bindtap="pasteFromClipboard">粘贴识别</view>
         </view>
       </view>
-
-      <view class="form-note" wx:if="{{!editingId && !addressList.length}}">
-        首个地址会自动设为默认地址，结算页会优先带入
-      </view>
-      <view class="form-note" wx:elif="{{form.isDefault}}">
-        默认地址会在结算时自动选中，也会显示在列表顶部
-      </view>
-      <view class="form-note accent">可用定位选择省市区，详细门牌仍需手动填写</view>
-      <view class="form-note success" wx:if="{{parseTip}}">{{parseTip}}</view>
 
       <view class="form-group">
         <text class="form-label">收货人</text>
@@ -112,7 +102,6 @@
       <view class="form-group row" bindtap="toggleDefault">
         <view>
           <text class="form-label form-label-strong">设为默认地址</text>
-          <view class="form-tip">默认地址会在下单时自动选中</view>
         </view>
         <view class="switch-wrap {{form.isDefault ? 'on' : ''}}">
           <view class="switch-dot"></view>

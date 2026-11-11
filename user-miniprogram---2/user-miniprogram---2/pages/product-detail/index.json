@@ -6,5 +6,8 @@
     "cart-parabola": "/components/cart-parabola/index",
     "product-card": "/components/product-card/index"
   },
-  "navigationStyle": "custom"
+  "navigationStyle": "custom",
+  "enablePullDownRefresh": true,
+  "backgroundColor": "#F5F7FB",
+  "backgroundTextStyle": "dark"
 }

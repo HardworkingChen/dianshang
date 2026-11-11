@@ -3,12 +3,10 @@
 
   <view class="auth-content">
     <view class="hero-panel">
-      <text class="hero-kicker">账户服务</text>
       <view class="hero-title-row">
         <text class="hero-title">{{isLogin ? '登录你的账户' : '注册新账户'}}</text>
         <text class="hero-badge">{{isLogin ? '账户' : '新用户'}}</text>
       </view>
-      <text class="hero-desc">{{isLogin ? '登录后可查看订单、地址、优惠券与购物记录。' : '注册后可同步收货地址、优惠券与订单信息。'}}</text>
     </view>
 
     <view class="auth-shell">
@@ -19,7 +17,6 @@
 
       <view class="form-head">
         <text class="form-title">{{isLogin ? '输入账号信息' : '用手机号完成注册'}}</text>
-        <text class="form-desc">{{isLogin ? '验证后继续' : '填写后使用'}}</text>
       </view>
 
       <view class="form-surface" wx:if="{{isLogin}}">

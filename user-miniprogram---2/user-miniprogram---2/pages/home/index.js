@@ -5,35 +5,36 @@ const { buildSafeWebviewUrl } = require('../../utils/webview')
 const { resolveProductImage } = require('../../utils/image')
 const recommendationTracker = require('../../utils/recommendation-tracker')
 const { buildProductShareMessage } = require('../../utils/share')
+const { filterOutSeckillProducts } = require('../../utils/seckill-filter')
 const SECKILL_COUNTDOWN_WINDOW_MS = 12 * 60 * 60 * 1000
 const DEFAULT_BANNERS = [
   {
-    id: 'fallback-iphone',
-    image: 'https://cyy050722.oss-cn-beijing.aliyuncs.com/products/2026/03/25/iphone-15-pro-max.webp',
-    title: '数码好物精选',
-    subtitle: '',
+    id: 'fallback-banner-71',
+    image: 'https://cyy050722.oss-cn-beijing.aliyuncs.com/products/web-matched/2026/04/30/product-0071.jpg',
+    title: '豫礼食养 · 道口烧鸡礼盒',
+    subtitle: '先看馆内热卖礼盒，送礼和自留都更稳妥',
     linkType: 'none',
     linkValue: '',
   },
   {
-    id: 'fallback-macbook',
-    image: 'https://cyy050722.oss-cn-beijing.aliyuncs.com/products/2026/03/25/macbook-pro-14.webp',
-    title: '效率装备焕新',
-    subtitle: '',
+    id: 'fallback-banner-75',
+    image: 'https://cyy050722.oss-cn-beijing.aliyuncs.com/products/web-matched/2026/04/30/product-0075.jpg',
+    title: '豫礼茶香 · 信阳毛尖礼盒',
+    subtitle: '从茶礼到伴手礼，先挑两件更有代表性的河南好物',
     linkType: 'none',
     linkValue: '',
   },
 ]
 
 const HENAN_INSPIRATIONS = [
-  { id: 'xinyang-maojian', title: '信阳毛尖', keyword: '信阳毛尖', iconClass: 'icon-food', toneClass: 'tone-tea' },
-  { id: 'daokou-chicken', title: '道口烧鸡', keyword: '道口烧鸡', iconClass: 'icon-food', toneClass: 'tone-food' },
-  { id: 'luoyang-peony', title: '洛阳牡丹', keyword: '洛阳牡丹', iconClass: 'icon-beauty', toneClass: 'tone-peony' },
-  { id: 'ruyao-junyao', title: '汝瓷钧瓷', keyword: '汝瓷', iconClass: 'icon-creative', toneClass: 'tone-porcelain' },
-  { id: 'nanyang-jade', title: '南阳玉雕', keyword: '南阳玉雕', iconClass: 'icon-creative', toneClass: 'tone-jade' },
-  { id: 'hulatang', title: '胡辣汤', keyword: '胡辣汤', iconClass: 'icon-food', toneClass: 'tone-soup' },
-  { id: 'sweet-potato-noodle', title: '红薯粉条', keyword: '红薯粉条', iconClass: 'icon-food', toneClass: 'tone-grain' },
-  { id: 'shaolin-culture', title: '少林文创', keyword: '少林', iconClass: 'icon-sport', toneClass: 'tone-shaolin' },
+  { id: 'xinyang-maojian', title: '信阳毛尖', keyword: '信阳毛尖', iconClass: 'icon-food', toneClass: 'tone-tea', iconImage: '/assets/local-goods/xinyang-maojian.png' },
+  { id: 'daokou-chicken', title: '道口烧鸡', keyword: '道口烧鸡', iconClass: 'icon-food', toneClass: 'tone-food', iconImage: '/assets/local-goods/daokou-chicken.png' },
+  { id: 'luoyang-peony', title: '洛阳牡丹', keyword: '洛阳牡丹', iconClass: 'icon-beauty', toneClass: 'tone-peony', iconImage: '/assets/local-goods/luoyang-peony.png' },
+  { id: 'ruyao-junyao', title: '汝瓷钧瓷', keyword: '汝瓷', iconClass: 'icon-creative', toneClass: 'tone-porcelain', iconImage: '/assets/local-goods/ru-porcelain.png' },
+  { id: 'nanyang-jade', title: '南阳玉雕', keyword: '南阳玉雕', iconClass: 'icon-creative', toneClass: 'tone-jade', iconImage: '/assets/local-goods/nanyang-jade.png' },
+  { id: 'hulatang', title: '胡辣汤', keyword: '胡辣汤', iconClass: 'icon-food', toneClass: 'tone-soup', iconImage: '/assets/local-goods/hulatang.png' },
+  { id: 'sweet-potato-noodle', title: '红薯粉条', keyword: '红薯粉条', iconClass: 'icon-food', toneClass: 'tone-grain', iconImage: '/assets/local-goods/sweet-potato-noodle.png' },
+  { id: 'shaolin-culture', title: '少林文创', keyword: '少林', iconClass: 'icon-sport', toneClass: 'tone-shaolin', iconImage: '/assets/local-goods/shaolin-culture.png' },
 ]
 
 const DEFAULT_INSPIRATIONS = HENAN_INSPIRATIONS
@@ -48,27 +49,27 @@ const CACHE_TTL = {
 const RECOMMEND_ALGORITHM_TABS = [
   {
     key: 'hybrid',
-    label: '混合算法',
-    badge: 'Hybrid',
-    title: '混合算法推荐',
-    explain: 'score = 0.40CF + 0.30CB + 0.30Hot',
-    tag: '权重公式',
+    label: '猜你喜欢',
+    badge: '为你',
+    title: '猜你喜欢',
+    explain: '结合你的浏览偏好和近期热卖实时更新',
+    tag: '推荐逻辑',
   },
   {
     key: 'cf',
-    label: '协同过滤',
-    badge: 'CF',
-    title: '协同过滤推荐',
-    explain: 'sim(u,v) = cosine(user_vector)',
-    tag: '相似度',
+    label: '相似好物',
+    badge: '相似',
+    title: '逛过的人还买了',
+    explain: '根据你最近浏览过的商品做相似推荐',
+    tag: '推荐逻辑',
   },
   {
     key: 'hot',
-    label: '热点推荐',
-    badge: 'Hot',
-    title: '热点推荐',
-    explain: 'hot_score = sales + click + ctr',
-    tag: '热度分',
+    label: '大家都在买',
+    badge: '热销',
+    title: '热门畅销',
+    explain: '近期成交和点击增长较快的商品都在这里',
+    tag: '推荐逻辑',
   },
 ]
 
@@ -82,14 +83,16 @@ Page({
     inspirations: [],
     recommendAlgorithmTabs: RECOMMEND_ALGORITHM_TABS,
     activeRecommendAlgorithm: 'hybrid',
-    recommendAlgorithmBadge: 'Hybrid',
-    recommendTitle: '人气推荐',
-    recommendExplain: 'score = 0.40CF + 0.30CB + 0.30Hot',
-    recommendExplainTag: '推荐依据',
+    recommendAlgorithmBadge: '为你',
+    recommendTitle: '猜你喜欢',
+    recommendExplain: '结合你的浏览偏好和近期热卖实时更新',
+    recommendExplainTag: '推荐逻辑',
     products: [],
     latestProducts: [],
     seckillProducts: [],
+    seckillHistoryMode: false,
     realtimeHotWindow: '1h',
+    realtimeHotWindowLabel: '1小时',
     realtimeHotWindows: { '1m': [], '1h': [], '1d': [] },
     realtimeHotProducts: [],
     realtimeHotLastUpdate: '',
@@ -107,7 +110,6 @@ Page({
     showInterestPopup: false,
     interestCategories: [],
     selectedInterestCount: 0,
-    searchShortcuts: ['生鲜', '数码', '户外', '美妆'],
     showRecommendEvidence: false,
     activeRecommendationEvidence: null
   },
@@ -116,6 +118,10 @@ Page({
     this._destroyed = false
     this.deferBelowFoldRender()
     this.loadHomeData()
+  },
+
+  clearHomeLocalCache() {
+    return false
   },
 
   deferBelowFoldRender() {
@@ -133,13 +139,20 @@ Page({
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 0 })
       app.applyMessageBadge()
-      app.refreshMessageUnreadCount().catch(() => {})
-      app.refreshCartCount().catch(() => {})
     }
     this.safeSetData({ unreadMessageCount: app.getMessageUnreadCount() })
-    app.refreshMessageUnreadCount().then((count) => {
-      this.safeSetData({ unreadMessageCount: count })
-    }).catch(() => {})
+    Promise.allSettled([
+      app.refreshMessageUnreadCount(),
+      app.refreshCartCount(),
+    ]).then((results) => {
+      if (this.isPageInactive()) {
+        return
+      }
+      const unreadResult = results[0]
+      if (unreadResult && unreadResult.status === 'fulfilled') {
+        this.safeSetData({ unreadMessageCount: unreadResult.value })
+      }
+    })
     this.handleEntryPopups()
   },
 
@@ -269,8 +282,8 @@ Page({
       
       // 如果有缓存，先显示缓存数据
       if (cachedBanners || cachedRecommendations) {
-        if (cachedBanners) {
-          const banners = (cachedBanners || []).map(item => ({
+        if (Array.isArray(cachedBanners) && cachedBanners.length) {
+          const banners = cachedBanners.map(item => ({
             id: item.id,
             image: resolveBannerImage(item.title, item.image),
             title: item.title || '',
@@ -280,10 +293,14 @@ Page({
           }))
           this.safeSetData({ banners })
         }
-        
-        if (cachedRecommendations && cachedRecommendations.records) {
-          const products = this.mapRecommendProducts(cachedRecommendations.records)
-          this.safeSetData({ 
+
+        const cachedRecommendRecords = Array.isArray(cachedRecommendations)
+          ? cachedRecommendations
+          : ((cachedRecommendations && cachedRecommendations.records) || [])
+
+        if (cachedRecommendRecords.length) {
+          const products = this.mapRecommendProducts(cachedRecommendRecords)
+          this.safeSetData({
             products,
             loading: false
           })
@@ -330,6 +347,7 @@ Page({
         products: this.data.products || [],
         latestProducts: [],
         seckillProducts: [],
+        seckillHistoryMode: false,
         realtimeHotWindows: { '1m': [], '1h': [], '1d': [] },
         realtimeHotProducts: [],
         realtimeHotLastUpdate: '',
@@ -372,6 +390,62 @@ Page({
     } catch (error) {}
   },
 
+  mapRecommendProducts(records) {
+    if (!Array.isArray(records)) {
+      return []
+    }
+
+    return this.diversifyProductList(filterOutSeckillProducts(records).map(item => {
+      const normalizedId = item.id || item.productId || item.goodsId || null
+      const seckillApplyId = Number(item.seckillApplyId || item.applyId || 0)
+      const seckillStatus = Number(item.seckillStatus)
+      const productImage = resolveProductImage(item)
+      const reason = item.recommendReason || item.reason || '猜你喜欢'
+      const reasonTags = this.normalizeReasonTags(item)
+      const tag = Array.isArray(item.tags) && item.tags.length
+        ? item.tags[0]
+        : (reasonTags[0] || '猜你喜欢')
+
+      return {
+        id: normalizedId,
+        image: productImage,
+        title: this.compactProductTitle(item.name || item.title || ''),
+        price: item.price,
+        salesText: this.formatSalesText(item.salesCount || item.saleCount || item.sales || 0),
+        categoryName: item.categoryName || item.category || '',
+        extraInfo: this.buildProductInfoLine(item),
+        tag,
+        visualClass: this.resolveProductVisualTone({
+          id: normalizedId,
+          title: this.compactProductTitle(item.name || item.title || ''),
+          image: productImage,
+          tag,
+        }),
+        reason,
+        reasonTags: reasonTags.length ? reasonTags : [tag],
+        sourceLabel: this.resolveSourceLabel(item, '智能推荐'),
+        recommendReasonText: this.buildRecommendReasonText({
+          reason,
+          reasonTags: reasonTags.length ? reasonTags : [tag],
+          sourceLabel: this.resolveSourceLabel(item, '智能推荐')
+        }),
+        reasonType: item.reasonType || '',
+        sourceType: item.sourceType || item.recommendationSourceType || '',
+        model版本: item.modelVersion || item.model版本 || 'cache',
+        dataFreshness: item.dataFreshness || '缓存',
+        recommendationToken: item.recommendationToken || '',
+        recommendationScene: item.recommendationScene || 'guess_you_like',
+        isSeckillDirectBuy: seckillApplyId > 0 && seckillStatus === 1,
+        seckillApplyId: seckillApplyId || null,
+        seckillStatus: Number.isFinite(seckillStatus) ? seckillStatus : null,
+      }
+    }).filter(item => item.id), {
+      limit: 20,
+      maxPerSeries: 1,
+      maxPerImage: 1,
+    })
+  },
+
   async loadRealtimeHotOverview() {
     this.safeSetData({ realtimeHotLoading: true })
     try {
@@ -392,6 +466,7 @@ Page({
       this.safeSetData({
         realtimeHotWindows: normalized,
         realtimeHotProducts: normalized[activeWindow] || [],
+        realtimeHotWindowLabel: this.getHotWindowLabel(activeWindow),
         realtimeHotLastUpdate: res && res.lastUpdate ? res.lastUpdate : '',
         realtimeHotLoading: false,
       })
@@ -409,7 +484,7 @@ Page({
 
   mapRealtimeHotProducts(rows) {
     if (!Array.isArray(rows)) return []
-    const mapped = rows
+    const mapped = filterOutSeckillProducts(rows)
       .map(item => {
         const priceValue = item.price == null || item.price === '' ? null : Number(item.price)
         const safePrice = Number.isFinite(priceValue) ? priceValue : null
@@ -455,6 +530,7 @@ Page({
     const windows = this.data.realtimeHotWindows || {}
     this.safeSetData({
       realtimeHotWindow: window,
+      realtimeHotWindowLabel: this.getHotWindowLabel(window),
       realtimeHotProducts: windows[window] || [],
     })
   },
@@ -465,6 +541,13 @@ Page({
       return normalized
     }
     return '1h'
+  },
+
+  getHotWindowLabel(window) {
+    const normalized = this.normalizeHotWindow(window)
+    if (normalized === '1m') return '1分钟'
+    if (normalized === '1d') return '1天'
+    return '1小时'
   },
 
   formatPriceText(price) {
@@ -510,13 +593,42 @@ Page({
       .slice(0, 3)
   },
 
-  resolveSourceLabel(item = {}, fallback = '智能推荐') {
+  normalizeReasonCompareText(value) {
+    return String(value || '')
+      .replace(/\s+/g, '')
+      .replace(/[·|｜、,，。:：]/g, '')
+      .trim()
+      .toLowerCase()
+  },
+
+  buildRecommendReasonText(product = {}, fallback = '河南馆今日推荐') {
+    const sourceLabel = String(product.sourceLabel || '').trim()
+    const reason = String(product.reason || product.recommendReason || '').trim()
+    const reasonTags = Array.isArray(product.reasonTags) ? product.reasonTags : []
+    const reasonTag = String(reasonTags.find(Boolean) || '').trim()
+
+    const normalizedSource = this.normalizeReasonCompareText(sourceLabel)
+    const normalizedReason = this.normalizeReasonCompareText(reason)
+    const normalizedTag = this.normalizeReasonCompareText(reasonTag)
+
+    if (reason && normalizedReason !== normalizedSource && normalizedReason !== normalizedTag) {
+      return reason
+    }
+
+    if (reasonTag && sourceLabel && normalizedTag !== normalizedSource) {
+      return `${sourceLabel} · ${reasonTag}`
+    }
+
+    return reasonTag || sourceLabel || reason || fallback
+  },
+
+  resolveSourceLabel(item = {}, fallback = '为你推荐') {
     const raw = `${item.sourceLabel || item.recommendationSourceLabel || item.sourceType || item.recommendationSourceType || ''}`.toLowerCase()
-    if (raw.includes('real') || raw.includes('behavior')) return '实时行为'
-    if (raw.includes('segment') || raw.includes('cluster') || raw.includes('group')) return '分群偏好'
-    if (raw.includes('hot') || raw.includes('rank')) return '热榜召回'
-    if (raw.includes('cf') || raw.includes('collaborative')) return '相似用户'
-    if (raw.includes('content') || raw.includes('similar')) return '内容相似'
+    if (raw.includes('real') || raw.includes('behavior')) return '最近逛过'
+    if (raw.includes('segment') || raw.includes('cluster') || raw.includes('group')) return '偏好相近'
+    if (raw.includes('hot') || raw.includes('rank')) return '大家都在买'
+    if (raw.includes('cf') || raw.includes('collaborative')) return '买过同类商品的人也在看'
+    if (raw.includes('content') || raw.includes('similar')) return '相似好物'
     return fallback
   },
 
@@ -524,21 +636,21 @@ Page({
     const tags = Array.isArray(product.reasonTags) && product.reasonTags.length
       ? product.reasonTags
       : ['与你浏览过的商品相似', '同类用户高转化', '近期热销上升']
-    const sourceLabel = product.sourceLabel || this.resolveSourceLabel(product, '混合推荐')
+    const sourceLabel = product.sourceLabel || this.resolveSourceLabel(product, '为你推荐')
     const scene = product.recommendationScene || 'guess_you_like'
     const token = product.recommendationToken || ''
     return {
       title: product.title || product.name || '推荐商品',
       sourceLabel,
-      reason: product.reason || '系统结合浏览、点击、加购、销量和价格带等信号生成当前排序。',
+      reason: product.reason || '结合你最近浏览、加购和大家都在买的商品，为你挑出更值得先看的好物。',
       tags: tags.slice(0, 3),
       dimensions: [
         { label: '价格带', value: product.price ? `¥${product.price}` : '同价位偏好' },
         { label: '品类', value: product.categoryName || product.extraInfo || '相似品类' },
-        { label: '行为', value: scene === 'hot' ? '近期热度' : '浏览 / 点击 / 加购' },
-        { label: '人群', value: sourceLabel === '热榜召回' ? '全站用户' : '相似用户' },
+        { label: '最近关注', value: scene === 'hot' ? '近期热度更高' : '浏览、点击、加购较多' },
+        { label: '推荐方向', value: sourceLabel === '大家都在买' ? '全站热销商品' : '偏好相近的人更常购买' },
       ],
-      tokenText: token ? `${token}`.slice(0, 10) : '归因 token',
+      tokenText: token ? `编号 ${`${token}`.slice(0, 10)}` : '本次推荐',
     }
   },
 
@@ -600,71 +712,6 @@ Page({
     } finally {
       this._manualRecommendRefreshing = false
     }
-  },
-
-  onRecommendDislike(e) {
-    const id = Number(e && e.detail ? e.detail.id : 0)
-    if (!Number.isFinite(id) || id <= 0) {
-      return
-    }
-    const recToken = e && e.detail && e.detail.recToken ? e.detail.recToken : ''
-    const source = Array.isArray(this.data.products) ? this.data.products : []
-    const nextProducts = source.filter(item => Number(item.id) !== id)
-    if (nextProducts.length === source.length) {
-      return
-    }
-
-    this.safeSetData({ products: nextProducts })
-    wx.showToast({ title: '将减少此类推荐', icon: 'none' })
-
-    if (app.isLoggedIn()) {
-      request.post('/recommendations/dislike', {
-        productId: id,
-        recommendationToken: recToken || '',
-        scene: 'guess_you_like',
-      }, { showLoading: false }).catch(() => {})
-    }
-
-    if (nextProducts.length < Math.min(6, source.length)) {
-      this._manualRecommendRefreshing = true
-      this.loadRecommendProducts(true).finally(() => {
-        this._manualRecommendRefreshing = false
-      })
-    }
-  },
-
-  onRecommendLongPressMenu(e) {
-    const detail = (e && e.detail) || {}
-    const product = detail.product || {}
-    const id = Number(detail.id || product.id || 0)
-    if (!Number.isFinite(id) || id <= 0) {
-      return
-    }
-    wx.showActionSheet({
-      itemList: ['不感兴趣', '查看推荐理由'],
-      success: (res) => {
-        if (res.tapIndex === 0) {
-          this.onRecommendDislike({
-            detail: {
-              id,
-              recToken: detail.recToken || product.recommendationToken || ''
-            }
-          })
-          return
-        }
-        if (res.tapIndex === 1) {
-          const tags = Array.isArray(product.reasonTags) && product.reasonTags.length
-            ? `\n命中标签：${product.reasonTags.join('、')}`
-            : ''
-          wx.showModal({
-            title: '推荐理由',
-            content: `${product.reason || '根据你的近期行为和商品表现推荐'}${tags}`,
-            showCancel: false,
-            confirmText: '知道了'
-          })
-        }
-      }
-    })
   },
 
   buildRefreshReorderedProducts(products) {
@@ -885,7 +932,7 @@ Page({
         showErrorToast: false
       })
 
-      const mapped = (Array.isArray(res) ? res : []).map(item => {
+      const mapped = filterOutSeckillProducts(Array.isArray(res) ? res : []).map(item => {
         const normalizedId = item.id || item.productId || item.goodsId || null
         const seckillApplyId = Number(item.seckillApplyId || item.applyId || 0)
         const seckillStatus = Number(item.seckillStatus)
@@ -927,6 +974,11 @@ Page({
           reason: reason || algorithmTab.explain,
           reasonTags: reasonTags.length ? reasonTags : [algorithmTab.label],
           sourceLabel: this.resolveSourceLabel(item, algorithmTab.label),
+          recommendReasonText: this.buildRecommendReasonText({
+            reason: reason || algorithmTab.explain,
+            reasonTags: reasonTags.length ? reasonTags : [algorithmTab.label],
+            sourceLabel: this.resolveSourceLabel(item, algorithmTab.label)
+          }, algorithmTab.explain),
           reasonType: item.reasonType || '',
           sourceType: item.sourceType || item.recommendationSourceType || '',
           model版本: item.modelVersion || item.model版本 || algorithmTab.badge,
@@ -991,7 +1043,7 @@ Page({
         showErrorToast: false
       })
 
-      const records = (res && res.records) || []
+      const records = filterOutSeckillProducts((res && res.records) || [])
       const latestProducts = this.diversifyProductList(records.map(item => {
         const normalizedId = item.id || item.productId || item.goodsId || null
         const seckillApplyId = Number(item.seckillApplyId || item.applyId || 0)
@@ -1013,8 +1065,13 @@ Page({
             tag: '最新上架',
           }),
           reason: '新品优先',
-          reasonTags: ['新品召回'],
-          sourceLabel: '新品召回',
+          reasonTags: ['新品上架'],
+          sourceLabel: '最新上架',
+          recommendReasonText: this.buildRecommendReasonText({
+            reason: '新品优先',
+            reasonTags: ['新品上架'],
+            sourceLabel: '最新上架'
+          }, '最新上架'),
           recommendationToken: '',
           isSeckillDirectBuy: seckillApplyId > 0 && seckillStatus === 1,
           seckillApplyId: seckillApplyId || null,
@@ -1044,15 +1101,30 @@ Page({
   async loadSeckillProducts() {
     this.safeSetData({ seckillLoading: true })
     try {
-      const res = await request.get('/seckill/products', { limit: 8 }, {
+      let historyMode = false
+      let res = await request.get('/seckill/products', { limit: 8 }, {
         showLoading: false,
         cacheTtl: 30 * 1000,
         forceRefresh: !!this._isPullRefreshing,
         showErrorToast: false
       })
-      const records = Array.isArray(res)
+      let records = Array.isArray(res)
         ? res
         : ((res && (res.records || res.list || res.items)) || [])
+
+      // 首页优先展示进行中/即将开始的场次；如果当前没有，则回退到会场可展示的往期封面，避免整块空白。
+      if (!records.length) {
+        historyMode = true
+        res = await request.get('/seckill/products', { limit: 8, includeHistory: true }, {
+          showLoading: false,
+          cacheTtl: 60 * 1000,
+          forceRefresh: !!this._isPullRefreshing,
+          showErrorToast: false
+        })
+        records = Array.isArray(res)
+          ? res
+          : ((res && (res.records || res.list || res.items)) || [])
+      }
 
       const seckillProducts = records.map((item) => {
         const originalPrice = Number(item.originalPrice != null ? item.originalPrice : (item.productPrice != null ? item.productPrice : item.price || 0))
@@ -1085,6 +1157,7 @@ Page({
       if (this.isPageInactive()) return
       this.safeSetData({
         seckillProducts,
+        seckillHistoryMode: historyMode && seckillProducts.length > 0,
         seckillLoading: false,
       })
       this.startSeckillTicker()
@@ -1093,6 +1166,7 @@ Page({
       if (this.isPageInactive()) return
       this.safeSetData({
         seckillProducts: [],
+        seckillHistoryMode: false,
         seckillLoading: false,
       })
       this.clearSeckillTicker()
@@ -1173,7 +1247,7 @@ Page({
     if (!hasNeedRefresh) {
       return
     }
-    this._seckillTicker = setInterval(() => {
+    const tick = () => {
       if (this.isPageInactive()) {
         this.clearSeckillTicker()
         return
@@ -1181,13 +1255,16 @@ Page({
       const keepRunning = this.refreshSeckillCountdowns()
       if (!keepRunning) {
         this.clearSeckillTicker()
+        return
       }
-    }, 1000)
+      this._seckillTicker = setTimeout(tick, 1000)
+    }
+    this._seckillTicker = setTimeout(tick, 1000)
   },
 
   clearSeckillTicker() {
     if (this._seckillTicker) {
-      clearInterval(this._seckillTicker)
+      clearTimeout(this._seckillTicker)
       this._seckillTicker = null
     }
   },
@@ -1197,8 +1274,8 @@ Page({
     const isFirstPage = page === 1
     const isPersonalized = app.isLoggedIn()
     const recommendExplain = isPersonalized
-      ? 'fallback = Hot'
-      : 'score = sales desc'
+      ? '优先展示近期更受欢迎的商品'
+      : '优先展示销量更高的商品'
 
     this.safeSetData({
       recommendExplain,
@@ -1222,7 +1299,7 @@ Page({
         showErrorToast: false
       })
 
-      const records = (res && res.records) || []
+      const records = filterOutSeckillProducts((res && res.records) || [])
       const mapped = records.map(item => {
         const normalizedId = item.id || item.productId || item.goodsId || null
         const seckillApplyId = Number(item.seckillApplyId || item.applyId || 0)
@@ -1246,7 +1323,12 @@ Page({
           }),
           reason: '热销补位',
           reasonTags: ['近期热销上升'],
-          sourceLabel: '热榜召回',
+          sourceLabel: '大家都在买',
+          recommendReasonText: this.buildRecommendReasonText({
+            reason: '热销补位',
+            reasonTags: ['近期热销上升'],
+            sourceLabel: '大家都在买'
+          }, '近期热销上升'),
           reasonType: item.reasonType || 'GENERAL',
           sourceType: item.sourceType || 'fallback',
           model版本: item.model版本 || 'fallback-hot-v1',
@@ -1435,8 +1517,10 @@ Page({
   },
 
   goToRealtimeHotProduct(e) {
-    const id = e.currentTarget?.dataset?.id
-    if (!id) {
+    const topProduct = Array.isArray(this.data.realtimeHotProducts) ? this.data.realtimeHotProducts[0] : null
+    const rawId = e.currentTarget?.dataset?.id || (topProduct && (topProduct.id || topProduct.productId))
+    const id = Number(rawId)
+    if (!Number.isFinite(id) || id <= 0) {
       wx.showToast({ title: '商品信息异常', icon: 'none' })
       return
     }
@@ -1447,14 +1531,58 @@ Page({
     if (!app.requireLogin('/pages/home/index')) {
       return
     }
-    app.navigateToPage('/pages/coupons/index')
+    app.navigateToPage('/package-user/coupons/index')
   },
 
   goToMessages() {
     if (!app.requireLogin('/pages/home/index')) {
       return
     }
-    app.navigateToPage('/pages/messages/index')
+    app.navigateToPage('/package-user/messages/index')
+  },
+
+  resolveHomeFeedProduct(section, index, fallbackId) {
+    const list = section === 'latestProducts'
+      ? (this.data.latestProducts || [])
+      : (this.data.products || [])
+    const item = Number.isInteger(index) ? list[index] : null
+    if (item && Number(item.id || item.productId) > 0) {
+      return item
+    }
+    const targetId = Number(fallbackId)
+    if (!Number.isFinite(targetId) || targetId <= 0) {
+      return null
+    }
+    return list.find(product => Number(product.id || product.productId) === targetId) || null
+  },
+
+  onFeedAddTap(e) {
+    const dataset = e.currentTarget?.dataset || {}
+    const product = this.resolveHomeFeedProduct(
+      dataset.section,
+      Number(dataset.index),
+      dataset.id
+    )
+    const id = Number(dataset.id || (product && (product.id || product.productId)) || 0)
+    if (!Number.isFinite(id) || id <= 0) {
+      wx.showToast({ title: '商品异常', icon: 'none' })
+      return
+    }
+    const touch = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
+    this.addToCart({
+      detail: {
+        id,
+        recToken: dataset.recToken || (product && product.recommendationToken) || '',
+        clientX: touch.clientX || touch.x || 200,
+        clientY: touch.clientY || touch.y || 500
+      },
+      currentTarget: {
+        dataset: {
+          id,
+          recToken: dataset.recToken || (product && product.recommendationToken) || ''
+        }
+      }
+    })
   },
 
   async checkCouponPopup() {
@@ -1487,7 +1615,7 @@ Page({
   goToCouponsFromPopup() {
     this.setData({ showCouponPopup: false })
     this.markPopupShown('couponPopupState', { count: this.data.unclaimedCount || 0 })
-    app.navigateToPage('/pages/coupons/index')
+    app.navigateToPage('/package-user/coupons/index')
   },
 
   getTodayKey() {
@@ -1526,32 +1654,9 @@ Page({
     )
   },
 
-  openRecommendationEvidence(e) {
-    const detailProduct = e.detail && e.detail.product ? e.detail.product : null
-    const id = e.detail?.id || detailProduct?.id
-    const productPool = [...(this.data.products || []), ...(this.data.latestProducts || [])]
-    const product = detailProduct || productPool.find(item => Number(item.id || item.productId) === Number(id))
-    if (!product) {
-      wx.showToast({ title: '推荐依据暂不可用', icon: 'none' })
-      return
-    }
-    this.setData({
-      activeRecommendationEvidence: this.buildRecommendationEvidence(product),
-      showRecommendEvidence: true,
-    })
-  },
-
-  closeRecommendationEvidence() {
-    this.setData({
-      showRecommendEvidence: false,
-      activeRecommendationEvidence: null,
-    })
-  },
-
   async addToCart(e) {
     const rawId = e.detail?.id || e.detail?.productId || e.currentTarget?.dataset?.id
     const id = Number(rawId)
-    const actionMode = e.detail?.actionMode || 'cart'
     const recToken = e.detail?.recToken || e.currentTarget?.dataset?.recToken
     const productPool = [...(this.data.products || []), ...(this.data.latestProducts || [])]
     const recProduct = productPool.find(item => Number(item.id || item.productId) === id)
@@ -1561,13 +1666,6 @@ Page({
       return
     }
     if (!app.requireLogin('/pages/home/index')) {
-      return
-    }
-    if (actionMode === 'seckill' || (recProduct && recProduct.isSeckillDirectBuy)) {
-      wx.showToast({ title: '请走秒杀', icon: 'none' })
-      setTimeout(() => {
-        app.navigateToPage(`/pages/product-detail/index?id=${id}`)
-      }, 120)
       return
     }
 
@@ -1581,7 +1679,7 @@ Page({
         { showLoading: false },
       )
       if (typeof app.refreshCartCount === 'function') {
-        app.refreshCartCount().catch(() => {})
+        app.refreshCartCount({ forceRefresh: true }).catch(() => {})
       }
 
       const clientX = e.detail?.clientX || 200

@@ -248,33 +248,12 @@ public class MerchantController {
     @GetMapping("/dashboard")
     public Result<?> dashboard(HttpServletRequest request) {
         Long merchantId = (Long) request.getAttribute("userId");
-        IPage<Product> products = productService.getMerchantProducts(merchantId, 1, 9999);
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("totalProducts", products.getTotal());
-
-        long totalSales = products.getRecords().stream().mapToLong(Product::getSalesCount).sum();
-        stats.put("totalSales", totalSales);
-
-        BigDecimal totalRevenue = products.getRecords().stream()
-                .map(p -> p.getPrice().multiply(new BigDecimal(p.getSalesCount())))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        stats.put("totalRevenue", totalRevenue);
-
-        long onShelf = products.getRecords().stream()
-                .filter(p -> p.getStatus() != null && p.getStatus() == Constants.ProductStatus.ON_SHELF).count();
-        stats.put("onShelfCount", onShelf);
-        stats.put("offShelfCount", products.getTotal() - onShelf);
-
-        List<Product> topProducts = products.getRecords().stream()
-                .sorted((a, b) -> b.getSalesCount().compareTo(a.getSalesCount()))
-                .limit(5).collect(Collectors.toList());
-        stats.put("topProducts", topProducts);
-
-        List<Product> lowStock = products.getRecords().stream()
-                .filter(p -> p.getStock() != null && p.getStock() < 50)
-                .collect(Collectors.toList());
-        stats.put("lowStockProducts", lowStock);
-
+        Map<String, Object> productStats = productService.getMerchantProductStats(merchantId, 50, 5);
+        IPage<Product> lowStockPage = productService.getMerchantLowStockProducts(merchantId, 50, 1, 8);
+        Map<String, Object> stats = new HashMap<>(productStats);
+        BigDecimal estimatedRevenue = (BigDecimal) productStats.get("estimatedRevenue");
+        stats.put("totalRevenue", estimatedRevenue == null ? BigDecimal.ZERO : estimatedRevenue);
+        stats.put("lowStockProducts", lowStockPage.getRecords());
         return Result.success(stats);
     }
 

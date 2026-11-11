@@ -10,10 +10,12 @@ import com.ecommerce.mapper.UserBehaviorMapper;
 import com.ecommerce.mapper.UserMapper;
 import com.ecommerce.service.StreamKafkaMonitorService;
 import com.ecommerce.service.StreamRealtimeRedisSinkService;
+import com.ecommerce.util.ProductVisibilityUtil;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -68,12 +71,16 @@ public class AdminStreamController {
     @Autowired
     private UserBehaviorMapper userBehaviorMapper;
 
+    @Autowired(required = false)
+    private JdbcTemplate jdbcTemplate;
+
     @GetMapping("/status")
     public Result<?> status() {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("realtimeEnabled", streamRealtimeProperties.isEnabled());
         data.put("kafkaConsumerEnabled", streamKafkaConsumerProperties.isEnabled());
         data.put("consumerGroupId", streamKafkaConsumerProperties.getGroupId());
+        data.put("monitorMode", resolveMonitorMode());
         data.put("topics", buildTopicBlock());
         data.put("redisHotLastUpdate", getValue("stream:product:hot:lastUpdate"));
         data.put("hotProducts1m", loadHotProducts("1m", 10));
@@ -92,6 +99,7 @@ public class AdminStreamController {
         status.put("realtimeEnabled", streamRealtimeProperties.isEnabled());
         status.put("kafkaConsumerEnabled", streamKafkaConsumerProperties.isEnabled());
         status.put("consumerGroupId", streamKafkaConsumerProperties.getGroupId());
+        status.put("monitorMode", resolveMonitorMode());
         status.put("topics", buildTopicBlock());
         status.put("redisHotLastUpdate", getValue("stream:product:hot:lastUpdate"));
         status.put("monitor", buildMonitorBlock());
@@ -109,7 +117,8 @@ public class AdminStreamController {
         metrics.put("hotProducts1h", hotProducts1h.size());
         metrics.put("hotProducts1d", hotProducts1d.size());
         metrics.put("recommendationKpiAvailable", recommendationKpi.isEmpty() ? 0 : 1);
-        metrics.put("pipelineReady", streamRealtimeProperties.isEnabled() && streamKafkaConsumerProperties.isEnabled());
+        metrics.put("pipelineReady", isPipelineReady());
+        metrics.put("monitorAvailable", isMonitorAvailable());
 
         data.put("status", status);
         data.put("metrics", metrics);
@@ -215,14 +224,15 @@ public class AdminStreamController {
             Map<String, Object> item = new LinkedHashMap<>(row);
             Long productId = parseLong(row.get("productId"));
             Product product = productId == null ? null : productMap.get(productId);
-            if (product != null) {
-                item.put("productName", product.getName());
-                item.put("productImage", product.getImage());
-                item.put("categoryName", product.getCategoryName());
-                item.put("price", product.getPrice());
-                item.put("salesCount", product.getSalesCount());
-                item.put("rating", product.getRating());
+            if (product == null || ProductVisibilityUtil.shouldHideFromRecommendation(product)) {
+                continue;
             }
+            item.put("productName", product.getName());
+            item.put("productImage", product.getImage());
+            item.put("categoryName", product.getCategoryName());
+            item.put("price", product.getPrice());
+            item.put("salesCount", product.getSalesCount());
+            item.put("rating", product.getRating());
             result.add(item);
         }
         return result;
@@ -240,21 +250,36 @@ public class AdminStreamController {
     }
 
     private Map<String, Object> buildMonitorBlock() {
-        Map<String, Object> payload = new LinkedHashMap<>();
         String groupId = streamKafkaConsumerProperties.getGroupId();
-        List<String> coreTopics = getCoreDataTopics();
+        Map<String, Object> payload;
 
-        if (streamKafkaMonitorService == null) {
-            payload.put("available", false);
-            payload.put("consumerLag", buildEmptyConsumerLag(groupId));
-            payload.put("deadLetter", buildEmptyDeadLetter());
-            payload.put("alerts", Collections.emptyList());
-            payload.put("updatedAt", null);
-            return payload;
+        if (streamKafkaConsumerProperties.isEnabled() && streamKafkaMonitorService != null) {
+            List<String> coreTopics = getCoreDataTopics();
+            payload = new LinkedHashMap<>(streamKafkaMonitorService.getRealtimeMonitor(groupId, coreTopics));
+            payload.put("mode", "kafka");
+        } else {
+            payload = buildLocalProjectionMonitor(groupId);
         }
 
-        payload.putAll(streamKafkaMonitorService.getRealtimeMonitor(groupId, coreTopics));
         appendHotDataStaleAlert(payload);
+        return payload;
+    }
+
+    private Map<String, Object> buildLocalProjectionMonitor(String groupId) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        String hotLastUpdate = getValue("stream:product:hot:lastUpdate");
+        String kpiLastUpdate = getValue("stream:recommendation:kpi:lastUpdate");
+        boolean projectionAvailable = hasRealtimeProjectionData();
+
+        payload.put("available", projectionAvailable);
+        payload.put("mode", projectionAvailable ? "local_projection" : "offline");
+        payload.put("consumerLag", buildEmptyConsumerLag(groupId));
+        payload.put("deadLetter", buildEmptyDeadLetter());
+        payload.put("alerts", Collections.emptyList());
+        payload.put("updatedAt", StringUtils.hasText(hotLastUpdate) ? hotLastUpdate : kpiLastUpdate);
+        if (projectionAvailable) {
+            payload.put("note", "Kafka consumer is disabled; reporting Redis local projection health.");
+        }
         return payload;
     }
 
@@ -339,13 +364,43 @@ public class AdminStreamController {
 
     private List<Map<String, Object>> buildPipelineSteps() {
         List<Map<String, Object>> steps = new ArrayList<>();
+        String monitorStepStatus = isMonitorAvailable() ? "active" : "idle";
         steps.add(buildStep("MySQL CDC", "行为、订单、订单项、商品、推荐事件捕获", "cdc.user_behavior / cdc.orders / cdc.order_item / cdc.product / cdc.recommendation_event", "ready"));
         steps.add(buildStep("DWD 标准层", "统一事件格式，便于下游复用", "dwd.user_behavior_event / dwd.order_paid_event / dwd.product_changed_event / dwd.recommendation_event", "ready"));
         steps.add(buildStep("DWS 聚合层", "多窗口热榜、品类偏好、行为分布、推荐核心8指标聚合", "dws.user_behavior_distribution / dws.user_category_preference / dws.product_hotness_realtime(1m/1h/1d) / dws.recommendation_core_metrics_realtime", "ready"));
         steps.add(buildStep("Redis 实时特征", "在线画像与热榜缓存", "stream:user:* / stream:product:*", streamRealtimeProperties.isEnabled() ? "active" : "idle"));
-        steps.add(buildStep("消费监控与告警", "消费积压、死信队列、告警面板", "/api/admin/stream/monitor", streamKafkaConsumerProperties.isEnabled() ? "active" : "idle"));
-        steps.add(buildStep("推荐与看板", "前台推荐、实时热榜与核心8指标看板使用", "/api/recommendations/realtime-hot* / /api/admin/stream/recommendation-kpi/realtime", streamRealtimeProperties.isEnabled() ? "active" : "idle"));
+        steps.add(buildStep("消费监控与告警", "消费积压、死信队列、告警面板", "/api/admin/stream/monitor", monitorStepStatus));
+        steps.add(buildStep("推荐与看板", "前台推荐、实时热榜与核心8指标看板使用", "/api/recommendations/realtime-hot* / /api/admin/stream/recommendation-kpi/realtime", isPipelineReady() ? "active" : "idle"));
         return steps;
+    }
+
+    private boolean isPipelineReady() {
+        return streamRealtimeProperties.isEnabled()
+                && (streamKafkaConsumerProperties.isEnabled() || hasRealtimeProjectionData());
+    }
+
+    private boolean isMonitorAvailable() {
+        if (streamKafkaConsumerProperties.isEnabled()) {
+            return streamKafkaMonitorService != null;
+        }
+        return streamRealtimeProperties.isEnabled()
+                && streamRealtimeRedisSinkService != null
+                && hasRealtimeProjectionData();
+    }
+
+    private String resolveMonitorMode() {
+        if (streamKafkaConsumerProperties.isEnabled() && streamKafkaMonitorService != null) {
+            return "kafka";
+        }
+        if (streamRealtimeProperties.isEnabled() && streamRealtimeRedisSinkService != null) {
+            return hasRealtimeProjectionData() ? "local_projection" : "offline";
+        }
+        return "offline";
+    }
+
+    private boolean hasRealtimeProjectionData() {
+        return StringUtils.hasText(getValue("stream:product:hot:lastUpdate"))
+                || StringUtils.hasText(getValue("stream:recommendation:kpi:lastUpdate"));
     }
 
     private Map<String, Object> buildStep(String name, String summary, String target, String status) {
@@ -393,6 +448,14 @@ public class AdminStreamController {
             List<Map<String, Object>> behaviorDistribution = normalizeBehaviorDistribution(snapshot.get("behaviorDistribution"));
             List<Map<String, Object>> categoryWeights = normalizeCategoryWeights(snapshot.get("categoryWeights"));
             List<String> tags = normalizeTags(snapshot.get("tags"));
+            Object lastUpdate = snapshot.get("lastUpdate");
+            boolean hasRealtimeProfile = !behaviorDistribution.isEmpty()
+                    || !categoryWeights.isEmpty()
+                    || !tags.isEmpty()
+                    || (lastUpdate != null && StringUtils.hasText(String.valueOf(lastUpdate)));
+            if (!hasRealtimeProfile) {
+                continue;
+            }
             long totalBehaviorCount = 0L;
             for (Map<String, Object> row : behaviorDistribution) {
                 totalBehaviorCount += parseLong(row.get("count")) == null ? 0L : parseLong(row.get("count"));
@@ -403,7 +466,7 @@ public class AdminStreamController {
             item.put("behaviorDistribution", behaviorDistribution);
             item.put("categoryWeights", categoryWeights);
             item.put("tags", tags);
-            item.put("lastUpdate", snapshot.get("lastUpdate"));
+            item.put("lastUpdate", lastUpdate);
             item.put("behaviorEventCount", totalBehaviorCount);
             item.put("categoryCount", categoryWeights.size());
             item.put("topCategory", categoryWeights.isEmpty() ? null : categoryWeights.get(0).get("categoryName"));
@@ -537,23 +600,182 @@ public class AdminStreamController {
         if (snapshot == null || snapshot.isEmpty()) {
             return Collections.emptyMap();
         }
+        Map<String, Object> normalizedSnapshot = new LinkedHashMap<>(snapshot);
+        mergeRecommendationKpiWithDb(normalizedSnapshot, statDate);
+
+        Long exposureCount = firstNonNull(parseLong(normalizedSnapshot.get("exposureCount")), parseLong(normalizedSnapshot.get("exposures")));
+        Long clickCount = firstNonNull(parseLong(normalizedSnapshot.get("clickCount")), parseLong(normalizedSnapshot.get("clicks")));
+        Long orderCount = firstNonNull(parseLong(normalizedSnapshot.get("orderCount")), parseLong(normalizedSnapshot.get("orders")));
+        Long refundCount = firstNonNull(parseLong(normalizedSnapshot.get("refundCount")), parseLong(normalizedSnapshot.get("refunds")));
+        Double gmv = parseDouble(normalizedSnapshot.get("gmv"));
 
         Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("DAU", parseLong(snapshot.get("dau")));
-        metrics.put("CTR", parseDouble(snapshot.get("ctr")));
-        metrics.put("CVR", parseDouble(snapshot.get("cvr")));
-        metrics.put("GMV", parseDouble(snapshot.get("gmv")));
-        metrics.put("AOV", parseDouble(snapshot.get("avgOrderValue")));
-        metrics.put("RepurchaseRate", parseDouble(snapshot.get("repurchaseRate")));
-        metrics.put("Retention7d", parseDouble(snapshot.get("retention7d")));
-        metrics.put("RefundRate", parseDouble(snapshot.get("refundRate")));
+        metrics.put("DAU", parseLong(normalizedSnapshot.get("dau")));
+        metrics.put("CTR", firstNonNull(parseDouble(normalizedSnapshot.get("ctr")), percentage(clickCount, exposureCount)));
+        metrics.put("CVR", firstNonNull(parseDouble(normalizedSnapshot.get("cvr")), percentage(orderCount, clickCount)));
+        metrics.put("GMV", gmv);
+        metrics.put("AOV", firstNonNull(parseDouble(normalizedSnapshot.get("avgOrderValue")), average(gmv, orderCount)));
+        metrics.put("RepurchaseRate", parseDouble(normalizedSnapshot.get("repurchaseRate")));
+        metrics.put("Retention7d", parseDouble(normalizedSnapshot.get("retention7d")));
+        metrics.put("RefundRate", firstNonNull(parseDouble(normalizedSnapshot.get("refundRate")), percentage(refundCount, orderCount)));
 
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("statDate", snapshot.get("statDate"));
-        payload.put("ts", snapshot.get("ts"));
-        payload.put("lastUpdate", snapshot.get("lastUpdate"));
+        payload.put("statDate", normalizedSnapshot.get("statDate"));
+        payload.put("ts", normalizedSnapshot.get("ts"));
+        payload.put("lastUpdate", normalizedSnapshot.get("lastUpdate"));
         payload.put("metrics", metrics);
-        payload.put("raw", snapshot);
+        payload.put("counts", buildRecommendationCounts(exposureCount, clickCount, orderCount, refundCount));
+        payload.put("raw", normalizedSnapshot);
         return payload;
+    }
+
+    private void mergeRecommendationKpiWithDb(Map<String, Object> snapshot, String requestedStatDate) {
+        if (snapshot == null || snapshot.isEmpty() || jdbcTemplate == null) {
+            return;
+        }
+        Object snapshotStatDate = snapshot.get("statDate");
+        String resolvedStatDate = StringUtils.hasText(requestedStatDate)
+                ? requestedStatDate.trim()
+                : (snapshotStatDate == null ? null : String.valueOf(snapshotStatDate).trim());
+        if (!StringUtils.hasText(resolvedStatDate)) {
+            return;
+        }
+
+        Map<String, Object> dbAggregate = loadRecommendationKpiAggregateFromDb(resolvedStatDate);
+        if (dbAggregate.isEmpty()) {
+            return;
+        }
+
+        // In local projection mode, prefer DB aggregates for recommendation core counts and amounts,
+        // because older Redis snapshots may only contain historical counts without amount backfill.
+        mergeKpiField(snapshot, dbAggregate, "statDate", false);
+        mergeKpiField(snapshot, dbAggregate, "dau", true);
+        mergeKpiField(snapshot, dbAggregate, "exposureCount", true);
+        mergeKpiField(snapshot, dbAggregate, "clickCount", true);
+        mergeKpiField(snapshot, dbAggregate, "orderCount", true);
+        mergeKpiField(snapshot, dbAggregate, "refundCount", true);
+        mergeKpiField(snapshot, dbAggregate, "orderUserCount", true);
+        mergeKpiField(snapshot, dbAggregate, "repurchaseUserCount", true);
+        mergeKpiField(snapshot, dbAggregate, "gmv", true);
+        mergeKpiField(snapshot, dbAggregate, "refundAmount", true);
+        mergeKpiField(snapshot, dbAggregate, "avgOrderValue", true);
+        mergeKpiField(snapshot, dbAggregate, "ctr", true);
+        mergeKpiField(snapshot, dbAggregate, "cvr", true);
+        mergeKpiField(snapshot, dbAggregate, "refundRate", true);
+        mergeKpiField(snapshot, dbAggregate, "ts", false);
+        mergeKpiField(snapshot, dbAggregate, "lastUpdate", false);
+    }
+
+    private Map<String, Object> loadRecommendationKpiAggregateFromDb(String statDate) {
+        if (!StringUtils.hasText(statDate) || jdbcTemplate == null) {
+            return Collections.emptyMap();
+        }
+        try {
+            return jdbcTemplate.query(
+                    "SELECT ? AS statDate, " +
+                            "COALESCE(SUM(CASE WHEN event_type = 'exposure' THEN 1 ELSE 0 END), 0) AS exposureCount, " +
+                            "COALESCE(SUM(CASE WHEN event_type = 'click' THEN 1 ELSE 0 END), 0) AS clickCount, " +
+                            "COALESCE(SUM(CASE WHEN event_type = 'order' THEN 1 ELSE 0 END), 0) AS orderCount, " +
+                            "COALESCE(SUM(CASE WHEN event_type = 'refund' THEN 1 ELSE 0 END), 0) AS refundCount, " +
+                            "COALESCE(COUNT(DISTINCT user_id), 0) AS dau, " +
+                            "COALESCE(COUNT(DISTINCT CASE WHEN event_type = 'order' THEN user_id END), 0) AS orderUserCount, " +
+                            "COALESCE(SUM(CASE WHEN event_type = 'order' THEN COALESCE(amount, 0) ELSE 0 END), 0) AS gmv, " +
+                            "COALESCE(SUM(CASE WHEN event_type = 'refund' THEN COALESCE(amount, 0) ELSE 0 END), 0) AS refundAmount, " +
+                            "DATE_FORMAT(MAX(COALESCE(event_time, create_time)), '%Y-%m-%d %H:%i:%s') AS lastUpdate " +
+                            "FROM recommendation_event " +
+                            "WHERE DATE(COALESCE(event_time, create_time)) = ?",
+                    rs -> {
+                        if (!rs.next()) {
+                            return Collections.<String, Object>emptyMap();
+                        }
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("statDate", rs.getString("statDate"));
+                        row.put("dau", rs.getLong("dau"));
+                        row.put("exposureCount", rs.getLong("exposureCount"));
+                        row.put("clickCount", rs.getLong("clickCount"));
+                        row.put("orderCount", rs.getLong("orderCount"));
+                        row.put("refundCount", rs.getLong("refundCount"));
+                        row.put("orderUserCount", rs.getLong("orderUserCount"));
+                        row.put("gmv", rs.getDouble("gmv"));
+                        row.put("refundAmount", rs.getDouble("refundAmount"));
+                        String lastUpdate = rs.getString("lastUpdate");
+                        row.put("ts", lastUpdate);
+                        row.put("lastUpdate", lastUpdate);
+
+                        Long exposureCount = rs.getLong("exposureCount");
+                        Long clickCount = rs.getLong("clickCount");
+                        Long orderCount = rs.getLong("orderCount");
+                        Long refundCount = rs.getLong("refundCount");
+                        Double gmv = rs.getDouble("gmv");
+
+                        row.put("ctr", percentage(clickCount, exposureCount));
+                        row.put("cvr", percentage(orderCount, clickCount));
+                        row.put("avgOrderValue", average(gmv, orderCount));
+                        row.put("refundRate", percentage(refundCount, orderCount));
+                        return row;
+                    },
+                    statDate, statDate);
+        } catch (Exception ignore) {
+            return Collections.emptyMap();
+        }
+    }
+
+    private void mergeKpiField(Map<String, Object> target,
+                               Map<String, Object> source,
+                               String field,
+                               boolean preferSource) {
+        if (target == null || source == null || !StringUtils.hasText(field) || !source.containsKey(field)) {
+            return;
+        }
+        Object sourceValue = source.get(field);
+        if (preferSource || target.get(field) == null) {
+            target.put(field, sourceValue);
+        }
+    }
+
+    private Map<String, Object> buildRecommendationCounts(Long exposureCount,
+                                                          Long clickCount,
+                                                          Long orderCount,
+                                                          Long refundCount) {
+        Map<String, Object> counts = new LinkedHashMap<>();
+        counts.put("exposureCount", exposureCount);
+        counts.put("clickCount", clickCount);
+        counts.put("orderCount", orderCount);
+        counts.put("refundCount", refundCount);
+        return counts;
+    }
+
+    private Double percentage(Long numerator, Long denominator) {
+        if (numerator == null || denominator == null || denominator <= 0L) {
+            return null;
+        }
+        return round2((numerator * 100D) / denominator);
+    }
+
+    private Double average(Double total, Long count) {
+        if (total == null || count == null || count <= 0L) {
+            return null;
+        }
+        return round2(total / count);
+    }
+
+    private Double round2(Double value) {
+        if (value == null) {
+            return null;
+        }
+        return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_UP).doubleValue();
+    }
+
+    @SafeVarargs
+    private final <T> T firstNonNull(T... values) {
+        if (values == null || values.length == 0) {
+            return null;
+        }
+        for (T value : values) {
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
     }
 }

@@ -25,18 +25,7 @@ case "$(basename "$script_file")" in
     exec /opt/ecommerce/scripts/run-kmeans-user-clustering.sh "${forward_args[@]}"
     ;;
   run-python-analytics.ps1)
-    jobs=""
-    for ((i = 0; i < ${#forward_args[@]}; i++)); do
-      if [[ "${forward_args[$i]}" == "-Jobs" || "${forward_args[$i]}" == "--jobs" ]]; then
-        jobs="${forward_args[$((i + 1))]:-}"
-        break
-      fi
-    done
-    if [[ ",${jobs}," == *",kmeans,"* || -z "$jobs" ]]; then
-      exec /opt/ecommerce/scripts/run-kmeans-user-clustering.sh "${forward_args[@]}"
-    fi
-    echo "[powershell-linux-compat] Skip non-kmeans analytics jobs: ${jobs:-<empty>}"
-    exit 0
+    exec /opt/ecommerce/scripts/run-python-analytics.sh "${forward_args[@]}"
     ;;
   run-competition-bigdata.ps1)
     snapshot_date="$(date +%F)"

@@ -14,23 +14,23 @@ if (-not (Test-Path $runner)) {
     throw "Python analytics runner not found: $runner"
 }
 
-$argsList = @(
-    "-RunOnce",
-    "-Jobs", "analytics,kmeans,recommendation",
-    "-K", [string]$K,
-    "-AutoK", $AutoK,
-    "-MinK", [string]$MinK,
-    "-MaxK", [string]$MaxK
-)
+$runnerParams = @{
+    RunOnce = $true
+    Jobs = "kmeans"
+    K = $K
+    AutoK = $AutoK
+    MinK = $MinK
+    MaxK = $MaxK
+}
 
 if (-not [string]::IsNullOrWhiteSpace($SnapshotDate)) {
-    $argsList += @("-SnapshotDate", $SnapshotDate)
+    $runnerParams.SnapshotDate = $SnapshotDate
 }
 
 if (-not [string]::IsNullOrWhiteSpace($PythonExe)) {
-    $argsList += @("-PythonExe", $PythonExe)
+    $runnerParams.PythonExe = $PythonExe
 }
 
 Write-Host "[run-kmeans-user-clustering] Delegating to run-python-analytics.ps1"
-& $runner @argsList
+& $runner @runnerParams
 exit $LASTEXITCODE

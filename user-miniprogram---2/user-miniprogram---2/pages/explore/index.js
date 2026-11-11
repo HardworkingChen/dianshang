@@ -3,6 +3,7 @@ const request = require('../../utils/request')
 const { mapCategoriesWithIconMeta } = require('../../utils/category-icons')
 const { resolveProductImage } = require('../../utils/image')
 const { buildProductShareMessage } = require('../../utils/share')
+const { filterOutSeckillProducts } = require('../../utils/seckill-filter')
 const CACHE_TTL = {
   STATIC: 30 * 60 * 1000,
   LIST: 3 * 60 * 1000
@@ -72,7 +73,8 @@ Page({
       categories = mapCategoriesWithIconMeta(categoriesResult.value || []).map((item) => ({
         id: item.id,
         name: item.name || '',
-        iconClass: item.iconClass
+        iconClass: item.iconClass,
+        iconImage: item.iconImage || ''
       }))
     } else {
       console.error('加载商品分类失败', categoriesResult.reason)
@@ -99,7 +101,7 @@ Page({
         cacheTtl: CACHE_TTL.LIST,
         forceRefresh: !!options.forceRefresh
       })
-      const records = (res && res.records) || (Array.isArray(res) ? res : [])
+      const records = filterOutSeckillProducts((res && res.records) || (Array.isArray(res) ? res : []))
 
       const mapped = records.map((item) => ({
         id: item.id,

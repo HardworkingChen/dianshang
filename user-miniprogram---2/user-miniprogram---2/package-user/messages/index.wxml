@@ -3,8 +3,7 @@
 
   <view class="hero">
     <view class="hero-main">
-      <text class="hero-kicker">消息概览</text>
-      <text class="hero-title">{{unreadMessageCount > 0 ? '你有新的待处理通知' : '消息已全部同步'}}</text>
+      <text class="hero-title">消息中心</text>
     </view>
     <view class="hero-action {{unreadMessageCount <= 0 ? 'disabled' : ''}}" bindtap="markAllRead">全部已读</view>
   </view>
@@ -89,8 +88,6 @@
     <view class="empty" wx:else>
       <view class="empty-icon"></view>
       <view class="empty-title">{{activeType ? '暂无消息' : '暂无消息'}}</view>
-      <view class="empty-desc" wx:if="{{activeType}}">切换分类查看</view>
-      <view class="empty-desc" wx:else>系统通知、订单进度和活动提醒都会显示在这里</view>
     </view>
 
     <view style="height: 48rpx;"></view>

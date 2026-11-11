@@ -1,162 +1,211 @@
 <template>
-  <div v-loading="loading" class="space-y-6 analytics-ui-page defense-page">
-    <section class="analysis-page-header">
-      <h1 class="analysis-page-header__title">行为分析</h1>
-      <div class="analysis-page-header__meta">行为权重 · 转化率 · 搜索指标</div>
-    </section>
-
-    <FeatureBrief
+  <div v-loading="loading" class="space-y-6 analytics-ui-page analytics-page-shell behavior-compact-page">
+    <AnalyticsPageHero
       kicker="用户行为"
-      title="判断依据与组成"
-      :items="behaviorFeatureBrief"
+      title="行为分析"
+      summary="看行为结构、搜索承接和转化。"
+      :meta="behaviorHeadMeta"
+      :chips="['行为结构', '搜索趋势', '转化承接', '证据明细']"
+      :highlights="behaviorHeroHighlights"
     />
 
-    <section class="defense-evidence-list defense-evidence-list--two">
-      <article
-        v-for="item in behaviorEvidenceTracks"
-        :key="item.title"
-        class="defense-evidence-item"
-      >
-        <div class="defense-evidence-item__head">
-          <div>
-            <div class="defense-evidence-item__title">{{ item.title }}</div>
-            <p class="mt-2 defense-evidence-item__text">{{ item.instance }}</p>
-          </div>
-          <span class="defense-inline-tag">{{ item.tag }}</span>
-        </div>
-        <div class="defense-evidence-item__note">{{ item.evidence }}</div>
+    <section class="analytics-metric-strip">
+      <article v-for="item in behaviorSummaryCards" :key="item.label" class="analytics-metric-strip__item">
+        <span class="analytics-metric-strip__label">{{ item.label }}</span>
+        <strong class="analytics-metric-strip__value">{{ item.value }}</strong>
+        <span class="analytics-metric-strip__sub">{{ item.sub }}</span>
       </article>
     </section>
 
-    <div v-if="behaviorActiveTab === 'overview'" class="space-y-5">
-      <section class="defense-metric-strip">
-        <article v-for="item in behaviorSummaryCards" :key="item.label" class="defense-metric-strip__item">
-          <span class="defense-metric-strip__label">{{ item.label }}</span>
-          <strong class="defense-metric-strip__value">{{ item.value }}</strong>
-          <span class="defense-metric-strip__sub">{{ item.sub }}</span>
-        </article>
-      </section>
+    <PageSectionTabs
+      v-model="behaviorActiveTab"
+      primary-label="管理端"
+      page-label="行为分析"
+      title="行为视图"
+      description=""
+      :tabs="behaviorTabs"
+      :active-label="behaviorActiveTabInfo.label"
+    />
 
-      <section class="defense-surface defense-surface--split behavior-overview-board">
-        <div class="defense-surface__main">
-          <div class="defense-surface__eyebrow">行为结构</div>
-          <h3 class="defense-surface__title">主行为、承接点和搜索信号</h3>
-          <p class="defense-surface__text">{{ behaviorOverviewNarrative }}</p>
-
-          <div class="behavior-overview-facts">
-            <article class="behavior-overview-facts__item">
-              <div class="behavior-overview-facts__label">主行为</div>
-              <div class="behavior-overview-facts__value">{{ topBehaviorText }}</div>
-              <p class="behavior-overview-facts__text">count 最大。</p>
-            </article>
-            <article class="behavior-overview-facts__item">
-              <div class="behavior-overview-facts__label">购买占比</div>
-              <div class="behavior-overview-facts__value">{{ formatPercent(purchaseShare) }}</div>
-              <p class="behavior-overview-facts__text">purchase / all_behavior。</p>
-            </article>
-            <article class="behavior-overview-facts__item">
-              <div class="behavior-overview-facts__label">搜索参与度</div>
-              <div class="behavior-overview-facts__value">{{ formatPercent(searchShare) }}</div>
-              <p class="behavior-overview-facts__text">query 进入召回。</p>
-            </article>
-          </div>
-        </div>
-
-        <aside class="defense-surface__side">
-          <div class="defense-surface__eyebrow">运营摘要</div>
-          <h3 class="defense-surface__title">判断</h3>
-          <div class="defense-rail-list">
-            <article v-for="(item, index) in behaviorDefenseLines" :key="index" class="defense-rail-list__item">
-              <div class="defense-rail-list__label">判断 {{ index + 1 }}</div>
-              <p class="defense-rail-list__text behavior-overview-rail__text">{{ item }}</p>
-            </article>
-          </div>
-        </aside>
-      </section>
-
-      <PageSectionTabs
-        v-model="behaviorActiveTab"
-        primary-label="管理端"
-        page-label="行为分析"
-        title="专题切换"
-        description=""
-        :tabs="behaviorTabs"
-        :active-label="behaviorActiveTabInfo.label"
-      />
-    </div>
-
-    <template v-else-if="behaviorActiveTab === 'structure'">
-      <PageSectionTabs
-        v-model="behaviorActiveTab"
-        primary-label="管理端"
-        page-label="行为分析"
-        title="专题切换"
-        description=""
-        :tabs="behaviorTabs"
-        :active-label="behaviorActiveTabInfo.label"
-      />
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <section class="defense-surface p-6">
-        <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-6">用户行为分布</h3>
-        <div ref="barChartRef" class="h-80 w-full"></div>
-      </section>
-      <section class="defense-surface p-6">
-        <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-6">行为占比</h3>
-        <div ref="pieChartRef" class="h-80 w-full"></div>
-      </section>
-    </div>
-    </template>
-
-    <template v-else-if="behaviorActiveTab === 'search'">
-      <PageSectionTabs
-        v-model="behaviorActiveTab"
-        primary-label="管理端"
-        page-label="行为分析"
-        title="专题切换"
-        description=""
-        :tabs="behaviorTabs"
-        :active-label="behaviorActiveTabInfo.label"
-      />
-    <div class="space-y-6">
-      <section class="defense-surface">
-        <div class="flex flex-wrap items-start justify-between gap-3">
+    <div v-if="behaviorActiveTab === 'overview'" class="behavior-overview-grid">
+      <section class="analytics-panel behavior-panel">
+        <div class="behavior-panel__head">
           <div>
-            <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100">搜索总览</h3>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">query、纠错、点击、购买。</p>
+            <div class="analytics-panel__eyebrow">行为结构</div>
+            <h3 class="behavior-panel__title">主行为强弱分布</h3>
           </div>
-          <el-tag type="warning" effect="plain" round>近 {{ searchAnalytics.days || 14 }} 天</el-tag>
+          <div class="behavior-panel__note">{{ topBehaviorText }}</div>
         </div>
-        <div class="mt-5 defense-metric-strip">
-          <article v-for="item in searchSummaryCards" :key="item.label" class="defense-metric-strip__item">
-            <span class="defense-metric-strip__label">{{ item.label }}</span>
-            <strong class="defense-metric-strip__value">{{ item.value }}</strong>
-            <span class="defense-metric-strip__sub">{{ item.sub }}</span>
+        <div class="behavior-chart-stage">
+          <div v-if="behaviorRows.length" ref="barChartRef" class="h-full w-full"></div>
+          <el-empty v-else description="暂无行为分布数据" :image-size="84" />
+        </div>
+        <div class="behavior-kpi-row">
+          <article v-for="item in behaviorKpiCards" :key="item.label" class="behavior-kpi-chip">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
           </article>
         </div>
       </section>
 
-      <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <section class="defense-surface p-6">
-          <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-2">搜索总次数趋势</h3>
-          <p class="mb-4 text-sm text-slate-500 dark:text-slate-400">query 与 correction_hit_rate。</p>
-          <div v-if="searchTrendRows.length" ref="searchTrendChartRef" class="h-80 w-full"></div>
-          <el-empty v-else description="暂无搜索趋势数据" :image-size="60" />
+      <section class="analytics-panel behavior-panel">
+        <div class="behavior-panel__head">
+          <div>
+            <div class="analytics-panel__eyebrow">重点</div>
+            <h3 class="behavior-panel__title">当前重点</h3>
+          </div>
+          <div class="behavior-panel__note">依据、数据、结论。</div>
+        </div>
+        <div class="behavior-focus-list">
+          <article v-for="item in behaviorFocusRows" :key="item.label" class="behavior-focus-item">
+            <span class="behavior-focus-item__label">{{ item.label }}</span>
+            <strong class="behavior-focus-item__value">{{ item.value }}</strong>
+            <p class="behavior-focus-item__text">{{ item.note }}</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="analytics-panel behavior-panel">
+        <div class="behavior-panel__head">
+          <div>
+            <div class="analytics-panel__eyebrow">占比</div>
+            <h3 class="behavior-panel__title">行为占比结构</h3>
+          </div>
+          <div class="behavior-panel__note">{{ behaviorRows.length }} 类行为</div>
+        </div>
+        <div class="behavior-pie-stage">
+          <div v-if="behaviorRows.length" ref="pieChartRef" class="h-full w-full"></div>
+          <el-empty v-else description="暂无行为占比数据" :image-size="84" />
+        </div>
+      </section>
+
+      <section class="analytics-panel behavior-panel">
+        <div class="behavior-panel__head">
+          <div>
+            <div class="analytics-panel__eyebrow">搜索</div>
+            <h3 class="behavior-panel__title">搜索承接快照</h3>
+          </div>
+          <div class="behavior-panel__note">{{ searchLeadSummary }}</div>
+        </div>
+        <div class="behavior-search-snapshot-grid">
+          <article v-for="item in overviewSearchCards" :key="item.label" class="behavior-snapshot-card">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+            <p>{{ item.sub }}</p>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <div v-else-if="behaviorActiveTab === 'structure'" class="behavior-structure-grid">
+      <section class="analytics-panel behavior-panel">
+        <div class="behavior-panel__head">
+          <div>
+            <div class="analytics-panel__eyebrow">结构</div>
+            <h3 class="behavior-panel__title">行为分布对比</h3>
+          </div>
+          <div class="behavior-panel__note">先看总量，再看强弱差。</div>
+        </div>
+        <div class="behavior-chart-stage">
+          <div v-if="behaviorRows.length" ref="barChartRef" class="h-full w-full"></div>
+          <el-empty v-else description="暂无行为分布数据" :image-size="84" />
+        </div>
+      </section>
+
+      <section class="analytics-panel behavior-panel">
+        <div class="behavior-panel__head">
+          <div>
+            <div class="analytics-panel__eyebrow">占比</div>
+            <h3 class="behavior-panel__title">占比与集中度</h3>
+          </div>
+          <div class="behavior-panel__note">{{ topBehaviorInsight }}</div>
+        </div>
+        <div class="behavior-structure-summary-grid">
+          <article v-for="item in structureSummaryCards" :key="item.label" class="behavior-summary-tile">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+            <p>{{ item.sub }}</p>
+          </article>
+        </div>
+        <div class="behavior-pie-stage behavior-pie-stage--compact">
+          <div v-if="behaviorRows.length" ref="pieChartRef" class="h-full w-full"></div>
+          <el-empty v-else description="暂无行为占比数据" :image-size="72" />
+        </div>
+      </section>
+
+      <section class="analytics-panel behavior-panel behavior-table-panel">
+        <div class="behavior-panel__head">
+          <div>
+            <div class="analytics-panel__eyebrow">明细</div>
+            <h3 class="behavior-panel__title">行为明细</h3>
+          </div>
+          <div class="behavior-panel__note">直接看次数、用户数、占比。</div>
+        </div>
+        <el-table
+          :data="tableRows"
+          class="!mt-4 !bg-transparent"
+          :header-cell-style="{ background: 'transparent', color: 'inherit' }"
+          :row-style="{ background: 'transparent' }"
+        >
+          <el-table-column prop="label" label="行为类型" min-width="180" />
+          <el-table-column prop="count" label="行为次数" width="160" />
+          <el-table-column prop="userCount" label="参与用户数" width="160" />
+          <el-table-column prop="share" label="行为占比" width="140" />
+        </el-table>
+      </section>
+    </div>
+
+    <div v-else-if="behaviorActiveTab === 'search'" class="space-y-6">
+      <section class="analytics-metric-strip behavior-search-strip">
+        <article v-for="item in searchSummaryCards" :key="item.label" class="analytics-metric-strip__item">
+          <span class="analytics-metric-strip__label">{{ item.label }}</span>
+          <strong class="analytics-metric-strip__value">{{ item.value }}</strong>
+          <span class="analytics-metric-strip__sub">{{ item.sub }}</span>
+        </article>
+      </section>
+
+      <div class="behavior-search-grid">
+        <section class="analytics-panel behavior-panel">
+          <div class="behavior-panel__head">
+            <div>
+              <div class="analytics-panel__eyebrow">搜索趋势</div>
+              <h3 class="behavior-panel__title">搜索趋势与纠错命中</h3>
+            </div>
+            <div class="behavior-panel__note">近 {{ searchAnalytics.days || 14 }} 天</div>
+          </div>
+          <div class="behavior-chart-stage">
+            <div v-if="searchTrendRows.length" ref="searchTrendChartRef" class="h-full w-full"></div>
+            <el-empty v-else description="暂无搜索趋势数据" :image-size="84" />
+          </div>
         </section>
 
-        <section class="defense-surface p-6">
-          <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-2">Top 搜索词</h3>
-          <p class="mb-4 text-sm text-slate-500 dark:text-slate-400">Top query = 显性意图。</p>
-          <div v-if="searchTopKeywords.length" ref="searchKeywordChartRef" class="h-80 w-full"></div>
-          <el-empty v-else description="暂无关键词排行" :image-size="60" />
+        <section class="analytics-panel behavior-panel">
+          <div class="behavior-panel__head">
+            <div>
+              <div class="analytics-panel__eyebrow">关键词</div>
+              <h3 class="behavior-panel__title">Top 搜索词</h3>
+            </div>
+            <div class="behavior-panel__note">{{ topKeywordText }}</div>
+          </div>
+          <div class="behavior-chart-stage">
+            <div v-if="searchTopKeywords.length" ref="searchKeywordChartRef" class="h-full w-full"></div>
+            <el-empty v-else description="暂无关键词排行" :image-size="84" />
+          </div>
         </section>
       </div>
 
-      <section class="defense-surface p-6">
-        <div class="flex flex-wrap items-start justify-between gap-3">
+      <section class="analytics-panel behavior-panel">
+        <div class="behavior-panel__head">
           <div>
-            <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100">搜索词明细</h3>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">按 total_query desc 排序。</p>
+            <div class="analytics-panel__eyebrow">关键词明细</div>
+            <h3 class="behavior-panel__title">搜索词明细</h3>
           </div>
+          <div class="behavior-panel__note">关键词直接反映显性意图。</div>
+        </div>
+        <div class="behavior-keyword-chip-row">
+          <span v-for="item in searchTopKeywords.slice(0, 6)" :key="item.keyword" class="behavior-keyword-chip">
+            {{ item.keyword }} · {{ formatNumber(item.totalCount) }}
+          </span>
         </div>
         <el-table
           :data="searchTopKeywords"
@@ -172,42 +221,46 @@
         </el-table>
       </section>
     </div>
-    </template>
 
-    <template v-else>
-      <PageSectionTabs
-        v-model="behaviorActiveTab"
-        primary-label="管理端"
-        page-label="行为分析"
-        title="专题切换"
-        description=""
-        :tabs="behaviorTabs"
-        :active-label="behaviorActiveTabInfo.label"
-      />
-    <section class="defense-surface p-6">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100">行为明细</h3>
-          <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">count、user_count、share 三个口径直接对比。</p>
+    <div v-else class="behavior-details-grid">
+      <section class="analytics-panel behavior-panel">
+        <div class="behavior-panel__head">
+          <div>
+            <div class="analytics-panel__eyebrow">明细表</div>
+            <h3 class="behavior-panel__title">行为证据明细</h3>
+          </div>
+          <div class="behavior-panel__note">{{ behaviorRows.length }} 类行为</div>
         </div>
-        <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
-          行为类型 {{ formatNumber(sortedBehaviorStats.length) }} 类
-        </div>
-      </div>
+        <el-table
+          :data="tableRows"
+          class="!mt-4 !bg-transparent"
+          :header-cell-style="{ background: 'transparent', color: 'inherit' }"
+          :row-style="{ background: 'transparent' }"
+        >
+          <el-table-column prop="label" label="行为类型" min-width="180" />
+          <el-table-column prop="count" label="行为次数" width="160" />
+          <el-table-column prop="userCount" label="参与用户数" width="160" />
+          <el-table-column prop="share" label="行为占比" width="140" />
+        </el-table>
+      </section>
 
-      <el-table
-        :data="tableRows"
-        class="!mt-5 !bg-transparent"
-        :header-cell-style="{ background: 'transparent', color: 'inherit' }"
-        :row-style="{ background: 'transparent' }"
-      >
-        <el-table-column prop="label" label="行为类型" min-width="180" />
-        <el-table-column prop="count" label="行为次数" width="160" />
-        <el-table-column prop="userCount" label="参与用户数" width="160" />
-        <el-table-column prop="share" label="行为占比" width="140" />
-      </el-table>
-    </section>
-    </template>
+      <section class="analytics-panel behavior-panel">
+        <div class="behavior-panel__head">
+          <div>
+            <div class="analytics-panel__eyebrow">判断</div>
+            <h3 class="behavior-panel__title">简短判断</h3>
+          </div>
+          <div class="behavior-panel__note">不展开链路，只保留结果。</div>
+        </div>
+        <div class="behavior-focus-list">
+          <article v-for="item in detailSummaryCards" :key="item.label" class="behavior-focus-item">
+            <span class="behavior-focus-item__label">{{ item.label }}</span>
+            <strong class="behavior-focus-item__value">{{ item.value }}</strong>
+            <p class="behavior-focus-item__text">{{ item.note }}</p>
+          </article>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -216,24 +269,22 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { useRoute, useRouter } from 'vue-router'
 import { getAdminBehaviorAnalytics, getAdminSearchBehaviorAnalytics } from '../../api/admin'
+import AnalyticsPageHero from '../../components/analytics/AnalyticsPageHero.vue'
 import PageSectionTabs from '../../components/PageSectionTabs.vue'
-import FeatureBrief from '../../components/FeatureBrief.vue'
+import { getAnalyticsChartTheme } from '../../utils/chartTheme'
 
 const route = useRoute()
 const router = useRouter()
-const behaviorFeatureBrief = [
-  { label: '判断依据', value: 'view / search / cart / purchase', text: '用 count、user_count、share 判断主行为强弱。' },
-  { label: '功能组成', value: 'structure + search', text: '行为分布、query、点击承接、购买承接。' },
-  { label: '输出结果', value: '主行为判断 + 转化断点', text: '高意向行为进推荐权重，低转化位置进优化清单。' },
-]
 
 const loading = ref(false)
 const behaviorStats = ref([])
+const searchAnalytics = ref({})
+
 const barChartRef = ref(null)
 const pieChartRef = ref(null)
 const searchTrendChartRef = ref(null)
 const searchKeywordChartRef = ref(null)
-const searchAnalytics = ref({})
+
 let charts = []
 let themeObserver = null
 
@@ -245,12 +296,11 @@ const behaviorTypeMap = {
   search: '搜索信号',
 }
 
-const heroTags = ['行为强弱', '转化动作', '搜索意图', '推荐前置信号']
 const behaviorTabs = [
-  { key: 'overview', label: '实例总览', hint: '结论', description: '主行为、购买占比、搜索占比。' },
-  { key: 'structure', label: '结构拆解', hint: '分布', description: '各行为 count / share。' },
-  { key: 'search', label: '搜索分析', hint: 'query', description: 'query、correction_hit、click、purchase。' },
-  { key: 'details', label: '证据明细', hint: '明细', description: 'count、user_count、share 表。' },
+  { key: 'overview', label: '行为总览', hint: '结论', description: '主行为、转化承接和搜索快照。' },
+  { key: 'structure', label: '结构拆解', hint: '分布', description: '看 count、share 和覆盖差异。' },
+  { key: 'search', label: '搜索分析', hint: 'query', description: '查询量、纠错命中、点击承接。' },
+  { key: 'details', label: '证据明细', hint: '表格', description: '行为次数、用户数、占比。' },
 ]
 const behaviorTabKeySet = new Set(behaviorTabs.map(item => item.key))
 
@@ -271,7 +321,8 @@ const topBehavior = computed(() => sortedBehaviorStats.value[0] || null)
 const purchaseBehavior = computed(() => sortedBehaviorStats.value.find(item => item.behaviorType === 'purchase') || null)
 const cartBehavior = computed(() => sortedBehaviorStats.value.find(item => item.behaviorType === 'cart') || null)
 const searchBehavior = computed(() => sortedBehaviorStats.value.find(item => item.behaviorType === 'search') || null)
-const topBehaviorText = computed(() => topBehavior.value ? `${topBehavior.value.label || topBehavior.value.behaviorLabel}` : '等待行为数据')
+
+const topBehaviorText = computed(() => topBehavior.value?.label || topBehavior.value?.behaviorLabel || '等待行为数据')
 const purchaseShare = computed(() => totalBehaviorCount.value ? Number(purchaseBehavior.value?.count || 0) / totalBehaviorCount.value : 0)
 const cartToPurchaseRate = computed(() => {
   const cart = Number(cartBehavior.value?.count || 0)
@@ -279,6 +330,7 @@ const cartToPurchaseRate = computed(() => {
   return cart ? purchase / cart : 0
 })
 const searchShare = computed(() => totalBehaviorCount.value ? Number(searchBehavior.value?.count || 0) / totalBehaviorCount.value : 0)
+
 const searchQuality = computed(() => searchAnalytics.value.quality || {})
 const searchConversion = computed(() => searchAnalytics.value.conversion || {})
 const searchTrendRows = computed(() => {
@@ -301,148 +353,211 @@ const searchTopKeywords = computed(() => {
     .sort((a, b) => b.totalCount - a.totalCount)
     .slice(0, 10)
 })
-const searchSummaryCards = computed(() => [
-  {
-    label: '搜索总次数',
-    value: formatNumber(searchQuality.value.totalQueries),
-    sub: 'sum(query_count)',
-  },
-  {
-    label: '搜索纠错命中率',
-    value: formatPercentValue(searchQuality.value.correctionHitRate),
-    sub: 'correction_hit / correction_total',
-  },
-  {
-    label: '搜索后点击率',
-    value: formatPercentValue(searchConversion.value.searchToClickRate),
-    sub: `click_user ${formatNumber(searchConversion.value.searchToClickUserCount)} / search_user ${formatNumber(searchConversion.value.searchUserCount)}`,
-  },
-  {
-    label: '搜索后购买率',
-    value: formatPercentValue(searchConversion.value.searchToPurchaseRate),
-    sub: `purchase_user ${formatNumber(searchConversion.value.searchToPurchaseUserCount)} / search_user ${formatNumber(searchConversion.value.searchUserCount)}`,
-  },
-])
+const topKeywordText = computed(() => searchTopKeywords.value[0]?.keyword || '等待关键词')
 
-const behaviorEvidenceTracks = computed(() => [
-  {
-    title: '主行为实例',
-    tag: '主行为',
-    type: 'primary',
-    instance: topBehavior.value
-      ? `${topBehaviorText.value} = max(count)，当前 ${formatNumber(topBehavior.value.count)}。`
-      : '等待行为数据回流后识别主行为。',
-    evidence: topBehavior.value
-      ? `主行为判断依据：count 与 share 同时最高。`
-      : '用于识别当前主行为。',
-  },
-  {
-    title: '转化动作实例',
-    tag: '转化',
-    type: 'success',
-    instance: cartBehavior.value && purchaseBehavior.value
-      ? `cart ${formatNumber(cartBehavior.value.count)}，purchase ${formatNumber(purchaseBehavior.value.count)}。`
-      : '等待加购与购买数据回流。',
-    evidence: `cart_to_purchase = ${formatPercent(cartToPurchaseRate.value)}。`,
-  },
-  {
-    title: '搜索意图实例',
-    tag: searchBehavior.value ? '搜索' : '待加载',
-    type: searchBehavior.value ? 'warning' : 'info',
-    instance: searchBehavior.value
-      ? `search ${formatNumber(searchBehavior.value.count)}，share ${formatPercent(searchShare.value)}。`
-      : '当前未采集到明显搜索行为。',
-    evidence: 'query 直接进入关键词召回与类目偏好。',
-  },
-  {
-    title: '经营判断实例',
-    tag: '结论',
-    type: 'danger',
-    instance: totalBehaviorCount.value
-      ? `count ${formatNumber(totalBehaviorCount.value)}，max_user ${formatNumber(totalUserCoverage.value)}。`
-      : '等待行为总量生成经营结论。',
-    evidence: behaviorOverviewNarrative.value,
-  },
-])
-const behaviorIntroRows = computed(() => [
-  {
-    label: '传统做法',
-    value: '只看 PV、UV 或总行为量，知道流量热不热，但不知道哪类动作最能代表真实意图。',
-  },
-  {
-    label: '解释短板',
-    value: `当前最强行为是 ${topBehaviorText.value}，如果不拆开行为链路，就很难解释推荐为什么这样排。`,
-  },
-  {
-    label: '搜索断层',
-    value: '只看搜索次数无法承接关键词、类目偏好和后续转化，运营动作很容易停在表层。',
-  },
-])
-const behaviorSolutionRows = computed(() => [
-  {
-    label: '多行为建模',
-    value: `统一统计浏览、搜索、加购、购买等行为，总行为 ${formatNumber(totalBehaviorCount.value)} 次。`,
-  },
-  {
-    label: '转化承接',
-    value: `购买占比 ${formatPercent(purchaseShare.value)}，加购到购买 ${formatPercent(cartToPurchaseRate.value)}。`,
-  },
-  {
-    label: '推荐联动',
-    value: '把行为强弱和搜索意图直接送进推荐召回与排序，不只停留在行为报表。',
-  },
-])
+const behaviorRows = computed(() => sortedBehaviorStats.value.map(item => {
+  const shareValue = totalBehaviorCount.value ? Number(item.count || 0) / totalBehaviorCount.value : 0
+  return {
+    label: item.label || item.behaviorLabel,
+    countRaw: Number(item.count || 0),
+    userCountRaw: Number(item.user_count || 0),
+    count: formatNumber(item.count),
+    userCount: formatNumber(item.user_count),
+    shareValue,
+    share: formatPercent(shareValue),
+  }
+}))
+
+const behaviorHeadMeta = computed(() => {
+  if (!totalBehaviorCount.value) {
+    return '这里继续拆到搜索、加购和购买承接，而不是只停留在总流量和访问人数。'
+  }
+  return `${topBehaviorText.value} 当前占比 ${formatPercent(topBehavior.value ? Number(topBehavior.value.count || 0) / totalBehaviorCount.value : 0)}，购买占比 ${formatPercent(purchaseShare.value)}，搜索参与度 ${formatPercent(searchShare.value)}。`
+})
 
 const behaviorSummaryCards = computed(() => [
   {
     label: '总行为量',
     value: formatNumber(totalBehaviorCount.value),
-    sub: 'sum(all_behavior_count)',
+    sub: '全部行为事件',
   },
   {
     label: '峰值参与用户',
     value: formatNumber(totalUserCoverage.value),
-    sub: 'max(user_count)',
+    sub: '最高 user_count',
   },
   {
     label: '购买占比',
     value: formatPercent(purchaseShare.value),
-    sub: 'purchase / all_behavior',
+    sub: 'purchase / all',
   },
   {
-    label: '加购→购买',
+    label: '搜索参与度',
+    value: formatPercent(searchShare.value),
+    sub: 'search / all',
+  },
+])
+const behaviorHeroHighlights = computed(() => [
+  {
+    label: '总行为量',
+    value: formatNumber(totalBehaviorCount.value),
+    note: '所有行为事件汇总口径。',
+  },
+  {
+    label: '当前主行为',
+    value: topBehaviorText.value,
+    note: topBehavior.value ? `占比 ${formatPercent(Number(topBehavior.value.count || 0) / Math.max(totalBehaviorCount.value, 1))}` : '等待行为数据',
+  },
+  {
+    label: '加购到购买',
     value: formatPercent(cartToPurchaseRate.value),
-    sub: 'purchase / cart',
+    note: '直接验证承接是否通畅。',
+  },
+  {
+    label: '搜索参与度',
+    value: formatPercent(searchShare.value),
+    note: topKeywordText.value === '等待关键词' ? '等待搜索数据' : `Top 词 ${topKeywordText.value}`,
   },
 ])
 
-const behaviorOverviewNarrative = computed(() => {
-  if (!totalBehaviorCount.value) {
-    return '当前无有效行为样本；先检查 view、search、cart、purchase 采集链路。'
-  }
-  return `主行为 = ${topBehaviorText.value}；purchase_share = ${formatPercent(purchaseShare.value)}；cart_to_purchase = ${formatPercent(cartToPurchaseRate.value)}。`
-})
-
-const behaviorDefenseLines = computed(() => [
-  `行为口径 = view / search / cart / purchase。`,
-  `主行为 = ${topBehaviorText.value}。`,
-  `purchase_share = ${formatPercent(purchaseShare.value)}；cart_to_purchase = ${formatPercent(cartToPurchaseRate.value)}。`,
+const behaviorKpiCards = computed(() => [
+  { label: '当前主行为', value: topBehaviorText.value },
+  { label: '加购→购买', value: formatPercent(cartToPurchaseRate.value) },
+  { label: '搜索占比', value: formatPercent(searchShare.value) },
+  { label: '峰值用户', value: formatNumber(totalUserCoverage.value) },
 ])
 
-const tableRows = computed(() => sortedBehaviorStats.value.map(item => ({
-  label: item.label || item.behaviorLabel,
-  count: formatNumber(item.count),
-  userCount: formatNumber(item.user_count),
-  share: formatPercent(totalBehaviorCount.value ? Number(item.count || 0) / totalBehaviorCount.value : 0),
-})))
+const behaviorFocusRows = computed(() => [
+  {
+    label: '传统盲区',
+    value: '只看 PV / UV',
+    note: '很难解释哪类动作最接近真实意图，也很难给推荐排序依据。',
+  },
+  {
+    label: '当前主行为',
+    value: topBehaviorText.value,
+    note: topBehavior.value
+      ? `当前行为次数 ${formatNumber(topBehavior.value.count)}，是最主要的用户动作。`
+      : '等待行为数据回流。',
+  },
+  {
+    label: '转化承接',
+    value: formatPercent(cartToPurchaseRate.value),
+    note: `加购 ${formatNumber(cartBehavior.value?.count || 0)}，购买 ${formatNumber(purchaseBehavior.value?.count || 0)}。`,
+  },
+  {
+    label: '搜索信号',
+    value: formatPercentValue(searchConversion.value.searchToClickRate),
+    note: `搜索后点击率，当前总查询 ${formatNumber(searchQuality.value.totalQueries)} 次。`,
+  },
+])
 
-function evidenceCardClass(type) {
-  if (type === 'primary') return 'border-blue-200 bg-blue-50/70 dark:border-blue-800/40 dark:bg-blue-900/10'
-  if (type === 'success') return 'border-emerald-200 bg-emerald-50/70 dark:border-emerald-800/40 dark:bg-emerald-900/10'
-  if (type === 'warning') return 'border-amber-200 bg-amber-50/70 dark:border-amber-800/40 dark:bg-amber-900/10'
-  if (type === 'danger') return 'border-rose-200 bg-rose-50/70 dark:border-rose-800/40 dark:bg-rose-900/10'
-  return 'border-slate-200 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-900/20'
-}
+const overviewSearchCards = computed(() => [
+  {
+    label: '搜索总次数',
+    value: formatNumber(searchQuality.value.totalQueries),
+    sub: 'query 总量',
+  },
+  {
+    label: '纠错命中率',
+    value: formatPercentValue(searchQuality.value.correctionHitRate),
+    sub: '纠错承接质量',
+  },
+  {
+    label: '搜索后点击率',
+    value: formatPercentValue(searchConversion.value.searchToClickRate),
+    sub: `点击用户 ${formatNumber(searchConversion.value.searchToClickUserCount)}`,
+  },
+  {
+    label: '搜索后购买率',
+    value: formatPercentValue(searchConversion.value.searchToPurchaseRate),
+    sub: `购买用户 ${formatNumber(searchConversion.value.searchToPurchaseUserCount)}`,
+  },
+])
+
+const searchSummaryCards = computed(() => [
+  {
+    label: '搜索总次数',
+    value: formatNumber(searchQuality.value.totalQueries),
+    sub: 'query 总量',
+  },
+  {
+    label: '纠错命中率',
+    value: formatPercentValue(searchQuality.value.correctionHitRate),
+    sub: 'correction_hit_rate',
+  },
+  {
+    label: '搜索后点击率',
+    value: formatPercentValue(searchConversion.value.searchToClickRate),
+    sub: `click_user ${formatNumber(searchConversion.value.searchToClickUserCount)}`,
+  },
+  {
+    label: '搜索后购买率',
+    value: formatPercentValue(searchConversion.value.searchToPurchaseRate),
+    sub: `purchase_user ${formatNumber(searchConversion.value.searchToPurchaseUserCount)}`,
+  },
+])
+
+const structureSummaryCards = computed(() => [
+  {
+    label: '主行为',
+    value: topBehaviorText.value,
+    sub: topBehavior.value ? `次数 ${formatNumber(topBehavior.value.count)}` : '等待回流',
+  },
+  {
+    label: '购买占比',
+    value: formatPercent(purchaseShare.value),
+    sub: '接近真实成交意图',
+  },
+  {
+    label: '搜索参与度',
+    value: formatPercent(searchShare.value),
+    sub: '显性意图入口',
+  },
+  {
+    label: '峰值用户',
+    value: formatNumber(totalUserCoverage.value),
+    sub: '用户覆盖上限',
+  },
+])
+
+const detailSummaryCards = computed(() => [
+  {
+    label: '主行为判断',
+    value: topBehaviorText.value,
+    note: '当前最强行为适合直接作为排序和召回的高权重信号。',
+  },
+  {
+    label: '购买承接',
+    value: formatPercent(purchaseShare.value),
+    note: '购买占比越高，说明行为链条越接近真实转化。',
+  },
+  {
+    label: '搜索承接',
+    value: formatPercentValue(searchConversion.value.searchToPurchaseRate),
+    note: `${topKeywordText.value} 是当前最强显性意图之一。`,
+  },
+])
+
+const searchLeadSummary = computed(() => {
+  if (!searchQuality.value.totalQueries) return '等待搜索数据'
+  return `${formatNumber(searchQuality.value.totalQueries)} 次 query`
+})
+
+const topBehaviorInsight = computed(() => {
+  if (!topBehavior.value || !totalBehaviorCount.value) return '等待行为数据'
+  const share = Number(topBehavior.value.count || 0) / totalBehaviorCount.value
+  if (share >= 0.5) return '头部行为集中度偏高'
+  if (share >= 0.35) return '头部行为较明显'
+  return '行为结构相对均衡'
+})
+
+const tableRows = computed(() => behaviorRows.value.map(item => ({
+  label: item.label,
+  count: item.count,
+  userCount: item.userCount,
+  share: item.share,
+})))
 
 function formatNumber(value) {
   const number = Number(value || 0)
@@ -482,6 +597,7 @@ async function fetchData() {
     })
 
     searchAnalytics.value = searchRes || {
+      days: 14,
       quality: {},
       trend: [],
       topKeywords: [],
@@ -499,53 +615,53 @@ function renderCharts() {
   charts.forEach(chart => chart?.dispose())
   charts = []
 
-  const isDark = document.documentElement.classList.contains('dark')
-  const textColor = isDark ? '#9ca3af' : '#6b7280'
-  const splitLineColor = isDark ? '#374151' : '#e5e7eb'
-  const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981']
+  const theme = getAnalyticsChartTheme()
+  const { textColor, splitLineColor, axisColor, surfaceColor, palette } = theme
+  const colors = [palette.primary, palette.secondary, palette.warning, palette.success, palette.accent]
 
-  const labels = sortedBehaviorStats.value.map(item => item.label)
-  const values = sortedBehaviorStats.value.map(item => Number(item.count || 0))
-
-  if (barChartRef.value && sortedBehaviorStats.value.length) {
+  if (barChartRef.value && behaviorRows.value.length) {
     const chart = echarts.init(barChartRef.value)
     chart.setOption({
       tooltip: { trigger: 'axis' },
-      grid: { left: '4%', right: '4%', bottom: 56, top: 24, containLabel: true },
+      grid: { left: '4%', right: '4%', bottom: 52, top: 28, containLabel: true },
       xAxis: {
         type: 'category',
-        data: labels,
+        data: behaviorRows.value.map(item => item.label),
         axisLabel: { color: textColor, interval: 0, margin: 14 },
+        axisLine: { lineStyle: { color: axisColor } },
       },
       yAxis: {
         type: 'value',
-        splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } },
         axisLabel: { color: textColor },
+        splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } },
       },
       series: [{
         type: 'bar',
         barMaxWidth: 40,
-        itemStyle: { borderRadius: [6, 6, 0, 0], color: params => colors[params.dataIndex % colors.length] },
-        data: values,
+        itemStyle: {
+          borderRadius: [8, 8, 0, 0],
+          color: params => colors[params.dataIndex % colors.length],
+        },
+        data: behaviorRows.value.map(item => item.countRaw),
       }],
     })
     charts.push(chart)
   }
 
-  if (pieChartRef.value && sortedBehaviorStats.value.length) {
+  if (pieChartRef.value && behaviorRows.value.length) {
     const chart = echarts.init(pieChartRef.value)
     chart.setOption({
       tooltip: { trigger: 'item' },
       legend: { bottom: 8, type: 'scroll', textStyle: { color: textColor } },
       series: [{
         type: 'pie',
-        radius: ['38%', '66%'],
+        radius: ['40%', '68%'],
         center: ['50%', '42%'],
-        itemStyle: { borderRadius: 10, borderColor: isDark ? '#1f2937' : '#fff', borderWidth: 2 },
+        itemStyle: { borderRadius: 10, borderColor: surfaceColor, borderWidth: 2 },
         label: { show: false },
-        emphasis: { label: { show: true, fontSize: 18, fontWeight: 'bold', color: textColor } },
-        data: sortedBehaviorStats.value.map((item, index) => ({
-          value: Number(item.count || 0),
+        emphasis: { label: { show: true, fontSize: 16, fontWeight: 'bold', color: textColor } },
+        data: behaviorRows.value.map((item, index) => ({
+          value: item.countRaw,
           name: item.label,
           itemStyle: { color: colors[index % colors.length] },
         })),
@@ -555,15 +671,16 @@ function renderCharts() {
   }
 
   if (searchTrendChartRef.value && searchTrendRows.value.length) {
-    const trendChart = echarts.init(searchTrendChartRef.value)
-    trendChart.setOption({
+    const chart = echarts.init(searchTrendChartRef.value)
+    chart.setOption({
       tooltip: { trigger: 'axis' },
-      grid: { left: '4%', right: '4%', bottom: 56, top: 24, containLabel: true },
-      legend: { top: 0, textStyle: { color: textColor }, data: ['搜索总次数', '纠错命中率'] },
+      legend: { top: 0, data: ['搜索总次数', '纠错命中率'], textStyle: { color: textColor } },
+      grid: { left: '4%', right: '4%', bottom: 52, top: 40, containLabel: true },
       xAxis: {
         type: 'category',
         data: searchTrendRows.value.map(item => item.date),
         axisLabel: { color: textColor },
+        axisLine: { lineStyle: { color: axisColor } },
       },
       yAxis: [
         {
@@ -585,7 +702,7 @@ function renderCharts() {
           name: '搜索总次数',
           type: 'bar',
           barMaxWidth: 28,
-          itemStyle: { borderRadius: [8, 8, 0, 0], color: '#3b82f6' },
+          itemStyle: { borderRadius: [8, 8, 0, 0], color: palette.primary },
           data: searchTrendRows.value.map(item => item.totalQueries),
         },
         {
@@ -594,20 +711,20 @@ function renderCharts() {
           yAxisIndex: 1,
           smooth: true,
           showSymbol: false,
-          lineStyle: { width: 3, color: '#f59e0b' },
+          lineStyle: { width: 3, color: palette.warning },
           data: searchTrendRows.value.map(item => item.correctionHitRate),
         },
       ],
     })
-    charts.push(trendChart)
+    charts.push(chart)
   }
 
   if (searchKeywordChartRef.value && searchTopKeywords.value.length) {
-    const keywordChart = echarts.init(searchKeywordChartRef.value)
+    const chart = echarts.init(searchKeywordChartRef.value)
     const keywordRows = [...searchTopKeywords.value].slice(0, 8).reverse()
-    keywordChart.setOption({
+    chart.setOption({
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      grid: { left: '4%', right: '4%', bottom: 24, top: 24, containLabel: true },
+      grid: { left: '4%', right: '4%', bottom: 20, top: 20, containLabel: true },
       xAxis: {
         type: 'value',
         axisLabel: { color: textColor },
@@ -621,11 +738,11 @@ function renderCharts() {
       series: [{
         type: 'bar',
         barMaxWidth: 22,
-        itemStyle: { borderRadius: 8, color: '#0ea5e9' },
+        itemStyle: { borderRadius: 8, color: palette.accent },
         data: keywordRows.map(item => item.totalCount),
       }],
     })
-    charts.push(keywordChart)
+    charts.push(chart)
   }
 }
 
@@ -676,67 +793,309 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.behavior-overview-board {
-  grid-template-columns: minmax(0, 1.14fr) minmax(300px, 0.86fr);
-}
-
-.behavior-overview-facts {
+.behavior-compact-head {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
   gap: 18px;
-  margin-top: 28px;
+  align-items: end;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
 }
 
-.behavior-overview-facts__item {
-  min-width: 0;
-  padding-top: 16px;
-  border-top: 1px solid rgba(148, 163, 184, 0.16);
-}
-
-.behavior-overview-facts__label {
-  font-size: 11px;
+.behavior-compact-head__kicker {
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #64748b;
+  color: #2563eb;
 }
 
-.behavior-overview-facts__value {
-  margin-top: 10px;
-  font-size: 24px;
+.behavior-compact-head__title {
+  margin: 8px 0 0;
+  font-size: 34px;
   font-weight: 800;
-  line-height: 1.2;
+  line-height: 1.12;
   color: #0f172a;
 }
 
-.behavior-overview-facts__text,
-.behavior-overview-rail__text {
-  margin-top: 10px;
+.behavior-compact-head__summary {
+  margin: 10px 0 0;
+  max-width: 700px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: #475569;
+}
+
+.behavior-compact-head__aside {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(239, 246, 255, 0.92));
+}
+
+.behavior-compact-head__tag {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #2563eb;
+}
+
+.behavior-compact-head__aside p {
+  margin: 0;
   font-size: 13px;
   line-height: 1.8;
   color: #475569;
 }
 
-.dark .behavior-overview-facts__item {
-  border-top-color: rgba(71, 85, 105, 0.48);
+.behavior-overview-grid,
+.behavior-structure-grid,
+.behavior-search-grid,
+.behavior-details-grid {
+  display: grid;
+  gap: 16px;
 }
 
-.dark .behavior-overview-facts__label {
-  color: #94a3b8;
+.behavior-overview-grid,
+.behavior-structure-grid,
+.behavior-search-grid,
+.behavior-details-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.92fr);
 }
 
-.dark .behavior-overview-facts__value {
+.behavior-table-panel {
+  grid-column: 1 / -1;
+}
+
+.behavior-panel {
+  padding: 20px 22px;
+  min-width: 0;
+}
+
+.behavior-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.behavior-panel__title {
+  margin: 6px 0 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #0f172a;
+}
+
+.behavior-panel__note {
+  max-width: 240px;
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: right;
+  color: #64748b;
+}
+
+.behavior-chart-stage,
+.behavior-pie-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 320px;
+  border: 1px dashed rgba(148, 163, 184, 0.22);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.72), rgba(255, 255, 255, 0.98));
+  overflow: hidden;
+}
+
+.behavior-pie-stage--compact {
+  height: 260px;
+  margin-top: 14px;
+}
+
+.behavior-kpi-row,
+.behavior-search-snapshot-grid,
+.behavior-structure-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.behavior-kpi-row {
+  margin-top: 14px;
+}
+
+.behavior-kpi-chip,
+.behavior-focus-item,
+.behavior-snapshot-card,
+.behavior-summary-tile {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.behavior-kpi-chip,
+.behavior-snapshot-card,
+.behavior-summary-tile {
+  padding: 12px 14px;
+}
+
+.behavior-kpi-chip span,
+.behavior-focus-item__label,
+.behavior-snapshot-card span,
+.behavior-summary-tile span {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.behavior-kpi-chip strong,
+.behavior-focus-item__value,
+.behavior-snapshot-card strong,
+.behavior-summary-tile strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 18px;
+  line-height: 1.35;
+  color: #0f172a;
+}
+
+.behavior-snapshot-card p,
+.behavior-summary-tile p,
+.behavior-focus-item__text {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.75;
+  color: #475569;
+}
+
+.behavior-focus-list {
+  display: grid;
+  gap: 12px;
+}
+
+.behavior-focus-item {
+  padding: 14px 16px;
+}
+
+.behavior-focus-item__value {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.behavior-keyword-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.behavior-keyword-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(248, 250, 252, 0.9);
+  font-size: 12px;
+  color: #334155;
+}
+
+.behavior-search-strip {
+  border-top-color: rgba(59, 130, 246, 0.16);
+}
+
+.dark .behavior-compact-head {
+  border-bottom-color: rgba(71, 85, 105, 0.46);
+}
+
+.dark .behavior-compact-head__title,
+.dark .behavior-panel__title,
+.dark .behavior-kpi-chip strong,
+.dark .behavior-focus-item__value,
+.dark .behavior-snapshot-card strong,
+.dark .behavior-summary-tile strong {
   color: #f8fafc;
 }
 
-.dark .behavior-overview-facts__text,
-.dark .behavior-overview-rail__text {
+.dark .behavior-compact-head__summary,
+.dark .behavior-compact-head__aside p,
+.dark .behavior-snapshot-card p,
+.dark .behavior-summary-tile p,
+.dark .behavior-focus-item__text {
   color: #cbd5e1;
 }
 
-@media (max-width: 768px) {
-  .behavior-overview-facts {
+.dark .behavior-panel__note,
+.dark .behavior-kpi-chip span,
+.dark .behavior-focus-item__label,
+.dark .behavior-snapshot-card span,
+.dark .behavior-summary-tile span {
+  color: #94a3b8;
+}
+
+.dark .behavior-compact-head__aside,
+.dark .behavior-chart-stage,
+.dark .behavior-pie-stage,
+.dark .behavior-kpi-chip,
+.dark .behavior-focus-item,
+.dark .behavior-snapshot-card,
+.dark .behavior-summary-tile,
+.dark .behavior-keyword-chip {
+  border-color: rgba(71, 85, 105, 0.52);
+  background: rgba(15, 23, 42, 0.54);
+}
+
+.dark .behavior-compact-head__tag {
+  background: rgba(15, 23, 42, 0.72);
+  border-color: rgba(71, 85, 105, 0.52);
+  color: #cbd5e1;
+}
+
+@media (max-width: 1180px) {
+  .behavior-compact-head,
+  .behavior-overview-grid,
+  .behavior-structure-grid,
+  .behavior-search-grid,
+  .behavior-details-grid {
     grid-template-columns: 1fr;
+  }
+
+  .behavior-panel__note {
+    max-width: none;
+    text-align: left;
+  }
+}
+
+@media (max-width: 768px) {
+  .behavior-panel {
+    padding: 16px;
+  }
+
+  .behavior-compact-head__title {
+    font-size: 28px;
+  }
+
+  .behavior-kpi-row,
+  .behavior-search-snapshot-grid,
+  .behavior-structure-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .behavior-chart-stage,
+  .behavior-pie-stage {
+    height: 280px;
+  }
+
+  .behavior-pie-stage--compact {
+    height: 240px;
   }
 }
 </style>

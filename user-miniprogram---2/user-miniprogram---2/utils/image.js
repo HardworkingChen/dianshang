@@ -2,8 +2,38 @@ const BLOCKED_HOST_PATTERNS = [
   /(?:^|\/\/)placehold\.co\//i,
   /(?:^|\/\/)via\.placeholder\.com\//i,
   /(?:^|\/\/)dummyimage\.com\//i,
+  /(?:^|\/\/)(?:api\.)?dicebear\.com\//i,
 ]
 const SIGNED_QUERY_PATTERN = /[?&](?:Expires|Signature|OSSAccessKeyId|x-oss-signature|x-oss-expires)=/i
+const OSS_HOST_PATTERN = /^https:\/\/cyy050722\.oss-cn-beijing\.aliyuncs\.com\//i
+const OSS_IMAGE_PROCESS_PATTERN = /[?&]x-oss-process=image\//i
+
+function getPreferredImageWidth() {
+  if (typeof wx === 'undefined' || typeof wx.getSystemInfoSync !== 'function') {
+    return 1200
+  }
+
+  try {
+    const systemInfo = wx.getSystemInfoSync() || {}
+    const windowWidth = Number(systemInfo.windowWidth || 375)
+    const pixelRatio = Number(systemInfo.pixelRatio || 2)
+    const targetWidth = Math.round(windowWidth * pixelRatio * 1.35)
+    return Math.max(960, Math.min(1600, targetWidth))
+  } catch (error) {
+    return 1200
+  }
+}
+
+function appendOssHdParams(url) {
+  const text = String(url || '').trim()
+  if (!text || !OSS_HOST_PATTERN.test(text) || OSS_IMAGE_PROCESS_PATTERN.test(text)) {
+    return text
+  }
+
+  const joiner = text.includes('?') ? '&' : '?'
+  const preferredWidth = getPreferredImageWidth()
+  return `${text}${joiner}x-oss-process=image/resize,w_${preferredWidth}/quality,q_92/format,webp`
+}
 
 function sanitizeImageText(text) {
   if (!text) {
@@ -28,7 +58,7 @@ function sanitizeImageText(text) {
     return secure.split('?')[0]
   }
 
-  return secure
+  return appendOssHdParams(secure)
 }
 
 function normalizeImageUrl(value) {

@@ -1,0 +1,31 @@
+{
+  "apiBaseUrl": "http://39.102.61.148/api",
+  "apiBaseUrlDev": "http://39.102.61.148/api",
+  "apiBaseUrlDevice": "http://39.102.61.148/api",
+  "apiBaseUrlTrial": "https://staging.unique-ecom.com/api",
+  "apiBaseUrlRelease": "https://api.unique-ecom.com/api",
+  "lib版本": "3.15.0",
+  "projectname": "user-miniprogram---2",
+  "condition": {},
+  "setting": {
+    "urlCheck": false,
+    "coverView": true,
+    "lazyloadPlaceholderEnable": false,
+    "skylineRenderEnable": false,
+    "preloadBackgroundData": false,
+    "autoAudits": true,
+    "useApiHook": true,
+    "useApiHostProcess": true,
+    "showShadowRootInWxmlPanel": true,
+    "useStaticServer": false,
+    "useLanDebug": false,
+    "showES6CompileOption": false,
+    "compileHotReLoad": false,
+    "checkInvalidKey": true,
+    "uploadWithSourceMap": false,
+    "ignoreDevUnusedFiles": true,
+    "bigPackageSizeSupport": false,
+    "useIsolateContext": true
+  },
+  "libVersion": "3.15.2"
+}

@@ -3,6 +3,24 @@ const request = require('../../utils/request')
 const { resolveProductImage } = require('../../utils/image')
 const { buildProductShareMessage } = require('../../utils/share')
 
+const WELCOME_PROMPT_POOL = [
+  '给我推荐河南特色商品',
+  '适合送礼的河南伴手礼',
+  '河南有什么值得买的非遗好物',
+  '预算 300 元左右的河南特产礼盒',
+  '适合办公室分享的河南零食',
+  '想买点有地方特色的文创好物',
+  '帮我挑几款洛阳风格的礼物',
+  '送外地朋友什么河南特产比较合适',
+]
+
+function getDefaultWelcomePrompts() {
+  const now = new Date()
+  const offset = (now.getDate() + now.getHours()) % WELCOME_PROMPT_POOL.length
+  const rotated = WELCOME_PROMPT_POOL.slice(offset).concat(WELCOME_PROMPT_POOL.slice(0, offset))
+  return rotated.slice(0, 3)
+}
+
 function createEmptySnapshot() {
   return {
     summary: '',
@@ -22,16 +40,12 @@ Page({
     loading: false,
     scrollTarget: '',
     msgIdCounter: 0,
-    welcomePrompts: [],
+    welcomePrompts: getDefaultWelcomePrompts(),
     shoppingSnapshot: createEmptySnapshot(),
     snapshotExpanded: false,
   },
 
   onLoad(options) {
-    if (!app.requireLogin('/pages/ai-assistant/index')) {
-      return
-    }
-
     const presetPrompt = options && options.prompt
       ? decodeURIComponent(options.prompt)
       : ''
@@ -63,6 +77,10 @@ Page({
   async sendMessage() {
     const text = (this.data.inputValue || '').trim()
     if (!text || this.data.loading) {
+      return
+    }
+
+    if (!app.requireLogin(`/pages/ai-assistant/index?prompt=${encodeURIComponent(text)}`)) {
       return
     }
 
@@ -654,19 +672,7 @@ Page({
   },
 
   buildWelcomePrompts() {
-    const pool = [
-      '预算 300 元左右的防晒',
-      '适合送礼的食品礼盒',
-      '通勤和办公都适合的小家电',
-      '3000 元左右的拍照手机',
-      '学生党适合入手的平板',
-      '适合跑步用的运动装备',
-      '预算 500 元左右的护肤礼盒',
-      '适合日常通勤的家居好物',
-    ]
-    const offset = (new Date().getDate() + new Date().getHours()) % pool.length
-    const rotated = pool.slice(offset).concat(pool.slice(0, offset))
-    return rotated.slice(0, 3)
+    return getDefaultWelcomePrompts()
   },
 
   getPromptSeed(intent, products) {

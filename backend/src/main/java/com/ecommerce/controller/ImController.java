@@ -16,6 +16,7 @@ import com.ecommerce.entity.ImTicket;
 import com.ecommerce.entity.Order;
 import com.ecommerce.entity.OrderItem;
 import com.ecommerce.entity.Product;
+import com.ecommerce.entity.RefundRequest;
 import com.ecommerce.entity.User;
 import com.ecommerce.mapper.ImConversationMapper;
 import com.ecommerce.mapper.ImMessageMapper;
@@ -26,8 +27,12 @@ import com.ecommerce.mapper.OrderMapper;
 import com.ecommerce.mapper.ProductMapper;
 import com.ecommerce.mapper.UserMapper;
 import com.ecommerce.service.AiService;
+import com.ecommerce.service.CustomerSupportAgentService;
+import com.ecommerce.service.CustomerSupportAgentClient;
 import com.ecommerce.service.ManagementWorkbenchRealtimeService;
 import com.ecommerce.service.ModuleSwitchService;
+import com.ecommerce.service.OrderService;
+import com.ecommerce.service.RefundApplicationService;
 import com.ecommerce.utils.RedisUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -87,6 +92,10 @@ public class ImController {
     @Autowired
     private AiService aiService;
     @Autowired
+    private CustomerSupportAgentService customerSupportAgentService;
+    @Autowired
+    private CustomerSupportAgentClient customerSupportAgentClient;
+    @Autowired
     private RedisUtil redisUtil;
     @Autowired
     private ImConversationMapper conversationMapper;
@@ -106,6 +115,10 @@ public class ImController {
     private UserMapper userMapper;
     @Autowired
     private ManagementWorkbenchRealtimeService managementWorkbenchRealtimeService;
+    @Autowired
+    private RefundApplicationService refundApplicationService;
+    @Autowired
+    private OrderService orderService;
 
     @GetMapping("/conversations")
     public Result<?> listConversations(@RequestParam(defaultValue = "1") int page,
@@ -336,8 +349,8 @@ public class ImController {
             if (Constants.Role.USER.equals(role)
                     && "support".equals(conversation.getConversationType())
                     && STATUS_AI_SERVING.equals(conversation.getStatus())) {
-                String aiReply = generateAiReplyWithGuards(currentUserId, conversation, content);
-                appendAiMessage(conversation.getId(), aiReply, null);
+                AiReply aiReply = generateAiReplyWithGuards(currentUserId, conversation, content);
+                appendAiMessage(conversation.getId(), aiReply.content, aiReply.payload);
                 conversation = conversationMapper.selectById(conversation.getId());
             }
             refreshConversation(conversation.getId());
@@ -352,6 +365,118 @@ public class ImController {
             }
             throw ex;
         }
+    }
+
+    @PostMapping("/conversations/{id}/agent-actions/confirm")
+    @Transactional(rollbackFor = Exception.class)
+    public Result<?> confirmAgentAction(@PathVariable Long id,
+                                        @RequestBody Map<String, Object> payload,
+                                        HttpServletRequest request) {
+        requireEnabled();
+        Long userId = currentUserId(request);
+        ensureRole(currentRole(request), Constants.Role.USER);
+        ImConversation conversation = requireConversation(id, userId, Constants.Role.USER);
+        if (!"support".equals(conversation.getConversationType()) || !STATUS_AI_SERVING.equals(conversation.getStatus())) {
+            throw new BusinessException("当前会话不支持由 AI 客服提交售后申请");
+        }
+        Long messageId = parseLong(payload == null ? null : payload.get("messageId"));
+        String actionId = trimToNull(payload == null ? null : payload.get("actionId"));
+        if (messageId == null || !StringUtils.hasText(actionId)) {
+            throw new BusinessException("售后确认信息无效，请重新发起咨询");
+        }
+        ImMessage aiMessage = messageMapper.selectByIdForUpdate(messageId);
+        if (aiMessage == null || !Objects.equals(aiMessage.getConversationId(), conversation.getId())
+                || !ROLE_AI.equals(aiMessage.getSenderRole())) {
+            throw new BusinessException("售后确认信息不存在");
+        }
+        Object parsedPayload = parseJson(aiMessage.getPayloadJson());
+        if (!(parsedPayload instanceof Map)) {
+            throw new BusinessException("售后确认信息格式无效");
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> messagePayload = new LinkedHashMap<>((Map<String, Object>) parsedPayload);
+        Object actionObject = messagePayload.get("agentAction");
+        if (!(actionObject instanceof Map)) {
+            throw new BusinessException("这条客服消息没有可确认的操作");
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> action = (Map<String, Object>) actionObject;
+        String actionType = trimToNull(action.get("type"));
+        if (!actionId.equals(String.valueOf(action.get("id")))
+                || !("refund_apply".equals(actionType) || "order_cancel".equals(actionType))) {
+            throw new BusinessException("售后确认信息不匹配");
+        }
+        if (!"pending".equals(action.get("status"))) {
+            if ("submitted".equals(action.get("status"))) {
+                return Result.success("该售后申请已提交", Collections.singletonMap("refundId", action.get("refundId")));
+            }
+            throw new BusinessException("售后确认已失效，请重新发起咨询");
+        }
+        if ("refund_apply".equals(actionType)) {
+            String confirmedDescription = trimToNull(payload.get("description"));
+            if (!StringUtils.hasText(confirmedDescription) || confirmedDescription.length() > 200) {
+                throw new BusinessException("请填写 1 到 200 字的退款原因");
+            }
+            action.put("description", confirmedDescription);
+            action.put("reason", confirmedDescription.substring(0, Math.min(confirmedDescription.length(), 100)));
+        }
+        long expiresAt = action.get("expiresAt") instanceof Number
+                ? ((Number) action.get("expiresAt")).longValue() : 0L;
+        if (expiresAt <= System.currentTimeMillis()) {
+            action.put("status", "expired");
+            messagePayload.put("agentAction", action);
+            aiMessage.setPayloadJson(JSON.toJSONString(messagePayload));
+            messageMapper.updateById(aiMessage);
+            return Result.error("售后确认已超时，请重新发起咨询");
+        }
+        Long orderId = parseLong(action.get("orderId"));
+        if (orderId == null || !Objects.equals(orderId, conversation.getOrderId())) {
+            throw new BusinessException("订单与当前会话不匹配");
+        }
+
+        if ("refund_apply".equals(actionType)) {
+            moduleSwitchService.requireEnabled("refund");
+            if (!moduleSwitchService.isEnabled("refund")) {
+                throw new BusinessException("退款功能暂时关闭");
+            }
+        }
+
+        action.put("status", "processing");
+        messagePayload.put("agentAction", action);
+        aiMessage.setPayloadJson(JSON.toJSONString(messagePayload));
+        messageMapper.updateById(aiMessage);
+
+        Long completedReference;
+        String completionMessage;
+        if ("refund_apply".equals(actionType)) {
+            RefundRequest refund = new RefundRequest();
+            refund.setOrderId(orderId);
+            refund.setReason(String.valueOf(action.get("reason")));
+            refund.setDescription(String.valueOf(action.get("description")));
+            RefundRequest submitted = refundApplicationService.apply(userId, refund);
+            completedReference = submitted.getId();
+            completionMessage = "售后申请已提交，申请编号 #" + submitted.getId() + "。商家审核后，处理进度会更新在订单售后页面。";
+        } else {
+            orderService.cancelOrder(orderId, userId);
+            completedReference = orderId;
+            completionMessage = "订单 " + trimToNull(action.get("orderNo")) + " 已取消。已支付金额按系统订单流程退回账户。";
+        }
+
+        action.put("status", "submitted");
+        action.put("resultId", completedReference);
+        if ("refund_apply".equals(actionType)) action.put("refundId", completedReference);
+        action.remove("expiresAt");
+        messagePayload.put("agentAction", action);
+        aiMessage.setPayloadJson(JSON.toJSONString(messagePayload));
+        messageMapper.updateById(aiMessage);
+
+        appendAiMessage(conversation.getId(), completionMessage, null);
+        refreshConversation(conversation.getId());
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("conversationId", conversation.getId());
+        event.put("messageId", aiMessage.getId());
+        publishImConversationEvent(conversation.getId(), "im-agent-action-completed", event);
+        return Result.success(completionMessage, Collections.singletonMap("resultId", completedReference));
     }
 
     @PutMapping("/conversations/{id}/read")
@@ -1249,38 +1374,65 @@ public class ImController {
         }
     }
 
-    private String generateAiReplyWithGuards(Long userId, ImConversation conversation, String userMessage) {
+    private AiReply generateAiReplyWithGuards(Long userId, ImConversation conversation, String userMessage) {
         String message = trimToNull(userMessage);
         if (!StringUtils.hasText(message)) {
-            return "请补充订单、物流或售后问题，我来继续处理。";
+            return aiReply("请补充订单、物流或售后问题，我来继续处理。", null);
         }
 
         String blockedKeyword = matchBlockedKeyword(message);
         if (blockedKeyword != null) {
-            return "该内容暂不支持处理，请直接描述订单、商品、物流或售后问题。";
+            return aiReply("该内容暂不支持处理，请直接描述订单、商品、物流或售后问题。", null);
         }
         if (containsPromptInjection(message)) {
-            return "这类指令暂不支持，请直接描述订单或售后问题。";
+            return aiReply("这类指令暂不支持，请直接描述订单或售后问题。", null);
         }
         if (isAiRateLimited(userId)) {
-            return "消息较多，请稍后再发，我会继续跟进。";
+            return aiReply("消息较多，请稍后再发，我会继续跟进。", null);
+        }
+        Map<String, Object> plan = customerSupportAgentClient.plan(buildAiConversationContext(conversation), message);
+        String plannedTool = plan == null ? null : trimToNull(plan.get("tool_name"));
+        Map<String, Object> agentEvidence = customerSupportAgentService.executeReadOnlyTools(
+                userId, conversation, message, plannedTool);
+        Long selectedOrderId = parseLong(agentEvidence.get("selectedOrderId"));
+        if (selectedOrderId != null && !Objects.equals(selectedOrderId, conversation.getOrderId())) {
+            Order selectedOrder = orderMapper.selectById(selectedOrderId);
+            if (selectedOrder != null && Objects.equals(selectedOrder.getUserId(), userId)) {
+                ImConversation binding = new ImConversation();
+                binding.setId(conversation.getId());
+                binding.setOrderId(selectedOrderId);
+                conversationMapper.updateById(binding);
+                conversation.setOrderId(selectedOrderId);
+            }
+        }
+        Map<String, Object> context = buildAiConversationContext(conversation);
+        if (plan != null && !plan.isEmpty()) context.put("agentPlan", plan);
+        if (!agentEvidence.isEmpty()) {
+            context.put("agentEvidence", agentEvidence);
         }
         if (!moduleSwitchService.isEnabled("ai-chat")) {
-            return generateAiSupportReply(message, conversation);
+            String toolReply = trimToNull(agentEvidence.get("customerReply"));
+            if (StringUtils.hasText(toolReply)) {
+                return buildAgentReply(toolReply, agentEvidence);
+            }
+            return aiReply(generateAiSupportReply(message, conversation), null);
         }
         if (isAiCircuitOpen()) {
-            return "当前咨询较多，我先给你规则建议；也可直接转人工。";
+            String toolReply = trimToNull(agentEvidence.get("customerReply"));
+            if (StringUtils.hasText(toolReply)) {
+                return buildAgentReply(toolReply, agentEvidence);
+            }
+            return aiReply("当前咨询较多，我先给你规则建议；也可直接转人工。", null);
         }
 
-        Map<String, Object> context = buildAiConversationContext(conversation);
         List<Map<String, Object>> history = buildSupportHistory(conversation.getId(), 20);
         for (int attempt = 1; attempt <= AI_REPLY_MAX_RETRY; attempt++) {
             try {
-                String reply = aiService.customerSupportReply(userId, context, history, message);
-                String normalized = trimToNull(reply);
+                Map<String, Object> agentResult = aiService.customerSupportReply(userId, context, history, message);
+                String normalized = trimToNull(agentResult == null ? null : agentResult.get("answer"));
                 if (StringUtils.hasText(normalized)) {
                     markAiCallSuccess();
-                    return compactSupportBubble(normalized);
+                    return buildAgentReply(normalized, agentEvidence, agentResult);
                 }
                 markAiCallFailure();
             } catch (Exception ignored) {
@@ -1296,7 +1448,57 @@ public class ImController {
                 }
             }
         }
-        return compactSupportBubble(generateAiSupportReply(message, conversation));
+        String toolReply = trimToNull(agentEvidence.get("customerReply"));
+        return StringUtils.hasText(toolReply)
+                ? buildAgentReply(toolReply, agentEvidence)
+                : aiReply(generateAiSupportReply(message, conversation), null);
+    }
+
+    private AiReply buildAgentReply(String content, Map<String, Object> evidence) {
+        return buildAgentReply(content, evidence, null);
+    }
+
+    private AiReply buildAgentReply(String content, Map<String, Object> evidence, Map<String, Object> agentResult) {
+        Map<String, Object> payload = null;
+        if ((evidence != null && !evidence.isEmpty()) || agentResult != null) {
+            payload = new LinkedHashMap<>();
+            if (evidence != null && !evidence.isEmpty()) {
+                Object action = evidence.get("pendingAction");
+                if (action instanceof Map) payload.put("agentAction", action);
+                Map<String, Object> trace = new LinkedHashMap<>();
+                trace.put("workflow", "ecommerce-support-v1");
+                trace.put("intent", evidence.get("intent"));
+                trace.put("toolStatus", evidence.get("toolStatus"));
+                trace.put("recordedAt", System.currentTimeMillis());
+                if (action instanceof Map) trace.put("actionStatus", "awaiting_user_confirmation");
+                payload.put("agentTrace", trace);
+                if (evidence.get("recentOrders") instanceof List) payload.put("agentOrders", evidence.get("recentOrders"));
+                if (evidence.get("refundHistory") instanceof List) payload.put("refundHistory", evidence.get("refundHistory"));
+            }
+            if (agentResult != null) {
+                Map<String, Object> workflow = new LinkedHashMap<>();
+                workflow.put("workflow", "langgraph-commerce-support-v1");
+                workflow.put("intent", agentResult.get("intent"));
+                workflow.put("citations", agentResult.get("citations"));
+                workflow.put("trace", agentResult.get("trace"));
+                payload.put("pythonAgent", workflow);
+            }
+        }
+        return aiReply(compactSupportBubble(content), payload);
+    }
+
+    private AiReply aiReply(String content, Map<String, Object> payload) {
+        return new AiReply(content, payload);
+    }
+
+    private static class AiReply {
+        private final String content;
+        private final Map<String, Object> payload;
+
+        private AiReply(String content, Map<String, Object> payload) {
+            this.content = content;
+            this.payload = payload;
+        }
     }
 
     private String compactSupportBubble(String text) {

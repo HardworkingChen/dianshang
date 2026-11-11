@@ -5,7 +5,6 @@
 
   <scroll-view class="fp-scroll" scroll-y bindscrolltolower="loadMore" refresher-enabled refresher-triggered="{{refreshing}}" bindrefresherrefresh="onRefresh">
     <view class="hero">
-      <view class="hero-kicker">浏览记录</view>
       <view class="hero-title">最近浏览</view>
       <view class="hero-pills">
         <text class="hero-pill">记录 {{displayCount}} 条</text>
@@ -16,7 +15,6 @@
     <block wx:for="{{groupedList}}" wx:key="date">
       <view class="date-header">
         <view class="date-main">
-          <text class="date-kicker">按日回看</text>
           <text class="date-text">{{item.dateLabel}}</text>
         </view>
         <text class="date-count">{{item.records.length}} 条</text>

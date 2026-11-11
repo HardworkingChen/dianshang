@@ -1,8 +1,17 @@
 <view class="container bg-gradient-primary">
-  <custom-nav-bar title="购物车 ({{cartList.length}})" showBack="{{false}}" backgroundColor="transparent" color="#111827"></custom-nav-bar>
+  <custom-nav-bar title="购物车 ({{cartItemCount}})" showBack="{{false}}" backgroundColor="transparent" color="#111827"></custom-nav-bar>
 
   <scroll-view class="cart-scroll" scroll-y wx:if="{{cartList.length > 0}}" refresher-enabled refresher-triggered="{{refreshing}}" bindrefresherrefresh="onRefresh">
     <view class="cart-content">
+      <view class="cart-summary-card">
+        <view class="cart-summary-main">
+          <view>
+            <text class="cart-summary-title">待结算商品</text>
+          </view>
+          <view class="cart-summary-count">{{cartItemCount}} 件</view>
+        </view>
+      </view>
+
       <view class="cart-list">
         <view class="cart-item-wrap" wx:for="{{cartList}}" wx:key="id" style="animation-delay: {{index * 56}}ms;">
           <view class="cart-item-delete" bindtap="deleteItem" data-index="{{index}}">
@@ -58,12 +67,11 @@
   </scroll-view>
 
   <view class="empty-cart" wx:else>
-    <view class="empty-poster">
-      <view class="empty-icon-wrap">
-        <view class="empty-icon"></view>
-      </view>
+      <view class="empty-poster">
+        <view class="empty-icon-wrap">
+          <view class="empty-icon"></view>
+        </view>
       <view class="empty-title">购物车还是空的</view>
-      <view class="empty-desc">暂无商品</view>
       <custom-button type="primary" size="large" bind:click="goExplore" customStyle="width: 320rpx;border-radius:999rpx;">去逛逛</custom-button>
     </view>
   </view>
@@ -87,21 +95,6 @@
             <text class="price-symbol total-price-symbol">¥</text>
             <number-ticker class="total-price text-brand" value="{{totalPriceNum}}" decimals="2"></number-ticker>
           </view>
-          <view class="savings-row">
-            <text class="savings-hint savings-hint-{{savingsHintTone}} {{smartSavingsLoading ? 'savings-hint-loading' : ''}}">{{savingsHintText}}</text>
-            <view class="savings-why-btn" wx:if="{{estimatedSavingsNum > 0 && savingsExplain}}" catchtap="toggleSavingsExplain">?</view>
-          </view>
-          <view class="savings-popover glass-card" wx:if="{{showSavingsExplain && savingsExplain}}" catchtap="hideSavingsExplain">
-            <text class="savings-popover-title text-heading">省钱明细</text>
-            <text class="savings-popover-line text-description">用券：{{savingsExplain.couponName}}</text>
-            <text class="savings-popover-line text-description">门槛：{{savingsExplain.thresholdText}}</text>
-            <text class="savings-popover-line text-description">立减：¥{{savingsExplain.discountText}}</text>
-            <text class="savings-popover-line text-description">类型：{{savingsExplain.scopeLabel}}</text>
-          </view>
-        </view>
-        <view class="smart-entry active-opacity glass-card-soft {{selectedCount === 0 ? 'smart-entry-disabled' : ''}}" bindtap="goSmartCheckout">
-          <view class="smart-entry-icon {{smartGuideLoading ? 'smart-entry-icon-loading' : ''}}"></view>
-          <text class="smart-entry-text text-heading">{{smartGuideLoading ? '计算中' : '最省方案'}}</text>
         </view>
         <view class="checkout-btn-wrap {{selectedCount > 0 ? 'checkout-btn-ready' : ''}}">
           <button class="btn-primary-gradient" disabled="{{selectedCount === 0}}" bindtap="goToCheckout">

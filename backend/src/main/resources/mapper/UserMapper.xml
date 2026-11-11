@@ -12,4 +12,10 @@
         WHERE id = #{id} AND deleted = 0
     </update>
 
+    <select id="selectTotalBalance" resultType="java.math.BigDecimal">
+        SELECT IFNULL(SUM(balance), 0)
+        FROM `user`
+        WHERE deleted = 0
+    </select>
+
 </mapper>

@@ -40,7 +40,7 @@ Page({
   onShow() {
     this._destroyed = false
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
-      this.getTabBar().setData({ selected: 3 })
+      this.getTabBar().setData({ selected: 4 })
       app.applyMessageBadge()
       app.refreshCartCount().catch(() => {})
     }
@@ -263,11 +263,6 @@ Page({
       return
     }
     this.goToEditProfile()
-  },
-
-  goToAiAssistant() {
-    if (!app.requireLogin('/pages/profile/index')) return
-    app.navigateToPage('/pages/ai-assistant/index')
   },
 
   goToAbout() {

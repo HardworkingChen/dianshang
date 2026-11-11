@@ -19,7 +19,6 @@ const ROUTE_ALIAS_MAP = {
   'pages/settings/index': 'package-user/settings/index',
   'pages/about/index': 'package-user/about/index',
   'pages/edit-profile/index': 'package-user/edit-profile/index',
-  'pages/ai-assistant/index': 'package-features/ai-assistant/index',
   'pages/webview/index': 'package-features/webview/index'
 }
 
@@ -204,6 +203,7 @@ App({
     return [
       '/pages/home/index',
       '/pages/explore/index',
+      '/pages/ai-assistant/index',
       '/pages/cart/index',
       '/pages/profile/index'
     ].includes(target)
@@ -211,6 +211,7 @@ App({
 
   _drainNavigationQueue() {
     this._navigationLock = false
+    this._navigationLockAt = 0
     const pending = this._pendingNavigationUrl
     this._pendingNavigationUrl = ''
     if (pending && pending !== this._currentNavigatingUrl) {
@@ -236,26 +237,25 @@ App({
       this._notifyNavigationFailure(target)
       return Promise.resolve(false)
     }
+    const baseUrl = target.split('?')[0]
+    const currentRoute = normalizePageUrl(this.getCurrentRoute())
+    const currentBaseUrl = currentRoute.split('?')[0]
 
-    if (this._navigationLock) {
-      this._pendingNavigationUrl = target
+    if (target === currentRoute) {
       return Promise.resolve(true)
     }
 
-    const baseUrl = target.split('?')[0]
+    if (this.isTabBarPage(baseUrl) && baseUrl === currentBaseUrl) {
+      return Promise.resolve(true)
+    }
 
     return new Promise((resolve) => {
       const finish = (result) => {
         if (!result) {
           this._notifyNavigationFailure(target)
         }
-        this._currentNavigatingUrl = ''
-        this._drainNavigationQueue()
-        resolve(result)
+        resolve(!!result)
       }
-
-      this._navigationLock = true
-      this._currentNavigatingUrl = target
 
       if (this.isTabBarPage(baseUrl)) {
         try {
@@ -343,13 +343,74 @@ App({
     })
   },
 
+  navigateToLoginPage(redirectUrl) {
+    const redirect = normalizePageUrl(redirectUrl || this.getCurrentRoute())
+    const loginUrl = `/pages/login/index?redirect=${encodeURIComponent(redirect)}`
+    const currentRoute = normalizePageUrl(this.getCurrentRoute()).split('?')[0]
+    if (currentRoute === '/pages/login/index') {
+      return Promise.resolve(true)
+    }
+
+    return new Promise((resolve) => {
+      const finish = (result) => resolve(!!result)
+      const fallbackRedirect = () => {
+        try {
+          wx.redirectTo({
+            url: loginUrl,
+            success: () => finish(true),
+            fail: () => {
+              try {
+                wx.reLaunch({
+                  url: loginUrl,
+                  success: () => finish(true),
+                  fail: () => finish(false)
+                })
+              } catch (reLaunchSyncError) {
+                console.warn('[App] login reLaunch sync error:', reLaunchSyncError)
+                finish(false)
+              }
+            }
+          })
+        } catch (redirectSyncError) {
+          console.warn('[App] login redirectTo sync error:', redirectSyncError)
+          finish(false)
+        }
+      }
+
+      try {
+        wx.navigateTo({
+          url: loginUrl,
+          success: () => finish(true),
+          fail: (error) => {
+            console.warn('[App] login navigateTo failed, fallback to redirectTo:', error)
+            fallbackRedirect()
+          }
+        })
+      } catch (navigateSyncError) {
+        console.warn('[App] login navigateTo sync error:', navigateSyncError)
+        fallbackRedirect()
+      }
+    })
+  },
+
   requireLogin(redirectUrl) {
     if (this.isLoggedIn()) {
       return true
     }
 
+    const now = Date.now()
+    if (!this._lastLoginPromptAt || now - this._lastLoginPromptAt > 1200) {
+      this._lastLoginPromptAt = now
+      try {
+        wx.showToast({
+          title: '请先登录',
+          icon: 'none'
+        })
+      } catch (toastError) {}
+    }
+
     const redirect = normalizePageUrl(redirectUrl || this.getCurrentRoute())
-    this.navigateToPage(`/pages/login/index?redirect=${encodeURIComponent(redirect)}`)
+    this.navigateToLoginPage(redirect)
     return false
   },
 
@@ -547,6 +608,15 @@ App({
     return cartCount
   },
 
+  calculateCartItemCount(cartData = {}) {
+    const items = Array.isArray(cartData)
+      ? cartData
+      : (Array.isArray(cartData.items) ? cartData.items : [])
+    return items.reduce((sum, item) => {
+      return sum + Math.max(0, Number(item && item.quantity ? item.quantity : 0))
+    }, 0)
+  },
+
   syncProfileAlertState(detail = {}) {
     const nextDetail = {
       couponAlertCount: Math.max(0, Number(detail.couponAlertCount || 0)),
@@ -624,7 +694,11 @@ App({
       return Promise.resolve(this.syncMessageUnreadCount(0))
     }
 
-    return request
+    if (this._messageUnreadRefreshPromise) {
+      return this._messageUnreadRefreshPromise
+    }
+
+    this._messageUnreadRefreshPromise = request
       .get('/messages/unread-count', {}, {
         showLoading: false,
         showErrorToast: false,
@@ -644,14 +718,28 @@ App({
         return count
       })
       .catch(() => this.getMessageUnreadCount())
+      .finally(() => {
+        this._messageUnreadRefreshPromise = null
+      })
+
+    return this._messageUnreadRefreshPromise
   },
 
-  refreshCartCount() {
+  refreshCartCount(options = {}) {
     if (!this.isLoggedIn()) {
       return Promise.resolve(this.syncCartCount(0))
     }
 
-    return request
+    const normalizedOptions = typeof options === 'boolean'
+      ? { forceRefresh: options }
+      : (options || {})
+    const forceRefresh = !!normalizedOptions.forceRefresh
+
+    if (this._cartCountRefreshPromise && !forceRefresh) {
+      return this._cartCountRefreshPromise
+    }
+
+    this._cartCountRefreshPromise = request
       .get('/cart', {}, {
         showLoading: false,
         showErrorToast: false,
@@ -659,17 +747,19 @@ App({
         timeout: 12000,
         cacheTtl: 20 * 1000,
         cacheByUser: true,
-        allowStaleOnError: true
+        allowStaleOnError: true,
+        forceRefresh
       })
       .then((res) => {
-        const totalCount = res && res.totalCount != null
-          ? Number(res.totalCount)
-          : ((res && Array.isArray(res.items) ? res.items : []).reduce((sum, item) => {
-            return sum + Math.max(0, Number(item.quantity || 0))
-          }, 0))
+        const totalCount = this.calculateCartItemCount(res)
         return this.syncCartCount(totalCount)
       })
       .catch(() => this.getCartCount())
+      .finally(() => {
+        this._cartCountRefreshPromise = null
+      })
+
+    return this._cartCountRefreshPromise
   },
 
   refreshProfileBadgeSummary() {

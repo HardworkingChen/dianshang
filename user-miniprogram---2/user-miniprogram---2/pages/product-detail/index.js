@@ -3,6 +3,7 @@ const request = require('../../utils/request')
 const im = require('../../utils/im')
 const recommendationTracker = require('../../utils/recommendation-tracker')
 const { buildProductShareMessage } = require('../../utils/share')
+const { filterOutSeckillProducts } = require('../../utils/seckill-filter')
 const SECKILL_COUNTDOWN_WINDOW_MS = 12 * 60 * 60 * 1000
 const CACHE_TTL = {
   DETAIL: 0,
@@ -48,12 +49,12 @@ Page({
     refreshing: false,
     aiSummary: '',
     aiSummaryLoading: false,
-    showAiQa: false,
-    aiQaInput: '',
-    aiQaLoading: false,
-    aiQaAnswer: '',
+    aiSummaryHighlights: [],
     showSkuPopup: false,
     skuQuantity: 1,
+    skuMaxQuantity: 1,
+    canIncreaseSku: false,
+    canDecreaseSku: false,
     buyMode: 'cart',
     activeCommerceTab: 'goods',
     scrollIntoView: '',
@@ -130,6 +131,14 @@ Page({
     this.safeSetData({ refreshing: false })
   },
 
+  async onPullDownRefresh() {
+    try {
+      await this.onRefresh()
+    } finally {
+      wx.stopPullDownRefresh()
+    }
+  },
+
   async loadProductDetail(id, options = {}) {
     const shouldShowLoading = options.showLoading !== false
     try {
@@ -171,6 +180,7 @@ Page({
         recommendationInsight: this.buildRecommendationInsight(product, res),
         loading: false,
       })
+      this.syncSkuState()
 
       if (seckill && (seckill.status === 0 || seckill.status === 1)) {
         this.startSeckillCountdown(seckill)
@@ -202,8 +212,8 @@ Page({
     }
   },
 
-  onScroll(e) {
-    const scrollTop = e.detail.scrollTop
+  onPageScroll(e) {
+    const scrollTop = Number((e && e.scrollTop) || 0)
     const threshold = 150
 
     if (scrollTop > threshold && !this.data.isScrolled) {
@@ -291,6 +301,7 @@ Page({
       buyMode: mode,
       skuQuantity: Math.min(this.data.skuQuantity || 1, this.getMaxSkuQuantity(mode)),
     })
+    this.syncSkuState(mode)
   },
 
   closeSkuPopup() {
@@ -303,17 +314,20 @@ Page({
     const maxQty = this.getMaxSkuQuantity()
     if (val > maxQty) val = maxQty
     this.setData({ skuQuantity: val })
+    this.syncSkuState()
   },
 
   decreaseQuantity() {
     if (this.data.skuQuantity > 1) {
       this.setData({ skuQuantity: this.data.skuQuantity - 1 })
+      this.syncSkuState()
     }
   },
 
   increaseQuantity() {
     if (this.data.skuQuantity < this.getMaxSkuQuantity()) {
       this.setData({ skuQuantity: this.data.skuQuantity + 1 })
+      this.syncSkuState()
     }
   },
 
@@ -443,6 +457,19 @@ Page({
     return Math.max(1, Number(this.data.product?.stock || 1))
   },
 
+  syncSkuState(modeOverride) {
+    const mode = modeOverride || this.data.buyMode
+    const skuMaxQuantity = Math.max(1, this.getMaxSkuQuantity(mode))
+    const skuQuantity = Math.min(Math.max(1, Number(this.data.skuQuantity || 1)), skuMaxQuantity)
+    this.safeSetData({
+      buyMode: mode,
+      skuQuantity,
+      skuMaxQuantity,
+      canDecreaseSku: skuQuantity > 1,
+      canIncreaseSku: skuQuantity < skuMaxQuantity,
+    })
+  },
+
   startSeckillCheckout() {
     const seckill = this.data.seckill
     if (!seckill || seckill.status !== SECKILL_STATUS.ACTIVE) {
@@ -487,7 +514,7 @@ Page({
         cacheByUser: app.isLoggedIn(),
         forceRefresh: !!options.forceRefresh
       })
-      const similarProducts = (res || []).map(item => ({
+      const similarProducts = filterOutSeckillProducts(res || []).map(item => ({
         id: item.id,
         image: item.mainImage || item.image || '',
         title: item.name || '',
@@ -675,12 +702,12 @@ Page({
 
   resolveRecommendationSourceLabel(rawScene) {
     const scene = `${rawScene || ''}`.toLowerCase()
-    if (scene.includes('hot')) return '热榜召回'
-    if (scene.includes('similar') || scene.includes('content')) return '内容相似'
-    if (scene.includes('collaborative') || scene.includes('cf')) return '相似用户'
-    if (scene.includes('cart')) return '购物车补购'
-    if (scene.includes('search')) return '搜索意图'
-    return this.data.recommendationToken ? '实时行为' : '商品详情'
+    if (scene.includes('hot')) return '大家都在买'
+    if (scene.includes('similar') || scene.includes('content')) return '相似好物'
+    if (scene.includes('collaborative') || scene.includes('cf')) return '买过同类商品的人也在看'
+    if (scene.includes('cart')) return '和购物车商品更搭'
+    if (scene.includes('search')) return '和你的搜索更接近'
+    return this.data.recommendationToken ? '最近逛过' : '详情页推荐'
   },
 
   buildRecommendationInsight(product, raw = {}) {
@@ -697,14 +724,14 @@ Page({
     const token = this.data.recommendationToken || raw.recommendationToken || ''
     return {
       sourceLabel,
-      reason: raw.recommendReason || raw.reason || 'score = view*1 + cart*2 + favorite*3 + purchase*8；再结合同类商品与相似用户排序。',
+      reason: raw.recommendReason || raw.reason || '结合你最近看的商品、加购偏好和同类商品热度，整理出这件更值得一起看的商品。',
       tags,
-      tokenText: token ? `${token}`.slice(0, 12) : '未携带',
+      tokenText: token ? `编号 ${`${token}`.slice(0, 12)}` : '本次推荐',
       dimensions: [
         { label: '价格带', value: product.price ? `¥${this.formatPrice(product.price)}` : '同价位' },
         { label: '品类', value: Array.isArray(product.tags) && product.tags.length ? product.tags[0] : '相似品类' },
-        { label: '归因 token', value: this.data.recommendationToken ? '已归因' : '详情浏览' },
-        { label: '相似用户', value: Number(product.salesCount || 0) > 0 ? `purchase ${product.salesCount}` : 'high-interest' },
+        { label: '与你的偏好', value: this.data.recommendationToken ? '和最近浏览更接近' : '来自当前商品详情页' },
+        { label: '热度表现', value: Number(product.salesCount || 0) > 0 ? `已售 ${product.salesCount}` : '近期关注度较高' },
       ],
     }
   },
@@ -773,6 +800,50 @@ Page({
       }
     })
     return result
+  },
+
+  buildAiSummaryHighlights(summary) {
+    const cleaned = `${summary || ''}`
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s:：-]+|[\s:：-]+$/g, '')
+      .trim()
+
+    if (!cleaned || cleaned === '暂无摘要' || cleaned === '生成失败') {
+      return []
+    }
+
+    const fragments = cleaned
+      .split(/[。！？；\n]/)
+      .map(item => item.trim())
+      .filter(Boolean)
+
+    const highlights = []
+    fragments.forEach(fragment => {
+      const text = fragment
+        .replace(/^综合来看[，,:：]*/, '')
+        .replace(/^评论显示[，,:：]*/, '')
+        .replace(/^多数用户认为[，,:：]*/, '')
+        .replace(/^用户普遍反馈[，,:：]*/, '')
+        .trim()
+
+      if (!text) return
+
+      const shortText = text.length > 18 ? text.slice(0, 18) : text
+      if (shortText.length >= 4 && highlights.indexOf(shortText) === -1) {
+        highlights.push(shortText)
+      }
+    })
+
+    if (highlights.length) {
+      return highlights.slice(0, 3)
+    }
+
+    return this.uniqueStrings(
+      cleaned
+        .split(/[，,、]/)
+        .map(item => item.trim())
+        .filter(item => item.length >= 4 && item.length <= 16)
+    ).slice(0, 3)
   },
 
   async recordBehavior(productId) {
@@ -870,18 +941,6 @@ Page({
     return queryParts.join('&')
   },
 
-  openAiAssistant(e) {
-    if (!app.requireLogin(`/pages/product-detail/index?id=${this.data.productId}`)) {
-      return
-    }
-
-    const prompt = e && e.currentTarget && e.currentTarget.dataset
-      ? e.currentTarget.dataset.prompt || ''
-      : `${this.shortTitle(this.data.product?.title)}值不值得买`
-
-    app.navigateToPage(`/pages/ai-assistant/index?prompt=${encodeURIComponent(prompt)}`)
-  },
-
   async loadAiSummary(options = {}) {
     if (this.data.aiSummaryLoading || (!options.forceRefresh && this.data.aiSummary) || !this.data.productId) return
     this.safeSetData({ aiSummaryLoading: true })
@@ -892,47 +951,20 @@ Page({
         forceRefresh: !!options.forceRefresh
       })
       if (this.isPageInactive()) return
-      this.safeSetData({ aiSummary: res || '暂无摘要', aiSummaryLoading: false })
+      const summaryText = res || '暂无摘要'
+      this.safeSetData({
+        aiSummary: summaryText,
+        aiSummaryHighlights: this.buildAiSummaryHighlights(summaryText),
+        aiSummaryLoading: false
+      })
     } catch (error) {
       console.error('智能 摘要失败', error)
       if (this.isPageInactive()) return
-      this.safeSetData({ aiSummary: '生成失败', aiSummaryLoading: false })
-    }
-  },
-
-  showAiQaPopup() {
-    this.setData({ showAiQa: true, aiQaAnswer: '' })
-  },
-
-  hideAiQaPopup() {
-    this.setData({ showAiQa: false })
-  },
-
-  onAiQaInput(e) {
-    this.setData({ aiQaInput: e.detail.value })
-  },
-
-  askAiQuick(e) {
-    const q = e.currentTarget.dataset.q
-    this.setData({ aiQaInput: q })
-    this.askAi()
-  },
-
-  async askAi() {
-    const question = this.data.aiQaInput.trim()
-    if (!question || this.data.aiQaLoading) return
-    this.safeSetData({ aiQaLoading: true, aiQaAnswer: '' })
-    try {
-      const res = await request.post('/ai/product-qa', {
-        productId: this.data.productId,
-        question,
-      }, { showLoading: false })
-      if (this.isPageInactive()) return
-      this.safeSetData({ aiQaAnswer: res || '暂无回答', aiQaLoading: false })
-    } catch (error) {
-      console.error('智能 问答失败', error)
-      if (this.isPageInactive()) return
-      this.safeSetData({ aiQaAnswer: '网络忙', aiQaLoading: false })
+      this.safeSetData({
+        aiSummary: '生成失败',
+        aiSummaryHighlights: [],
+        aiSummaryLoading: false
+      })
     }
   },
 
@@ -1036,7 +1068,7 @@ Page({
     if (this.isPageInactive()) {
       return
     }
-    this._seckillTimer = setInterval(() => {
+    const tick = () => {
       if (this.isPageInactive()) {
         this.clearSeckillCountdownTimer()
         return
@@ -1067,6 +1099,7 @@ Page({
         if (countdownText !== this.data.seckillCountdownText) {
           this.safeSetData({ seckillCountdownText: countdownText })
         }
+        this._seckillTimer = setTimeout(tick, 1000)
         return
       }
 
@@ -1076,6 +1109,7 @@ Page({
         if (fallbackText !== this.data.seckillCountdownText) {
           this.safeSetData({ seckillCountdownText: fallbackText })
         }
+        this._seckillTimer = setTimeout(tick, 1000)
         return
       }
       if (now >= targetAt) {
@@ -1098,12 +1132,14 @@ Page({
       if (countdownText !== this.data.seckillCountdownText) {
         this.safeSetData({ seckillCountdownText: countdownText })
       }
-    }, 1000)
+      this._seckillTimer = setTimeout(tick, 1000)
+    }
+    this._seckillTimer = setTimeout(tick, 1000)
   },
 
   clearSeckillCountdownTimer() {
     if (this._seckillTimer) {
-      clearInterval(this._seckillTimer)
+      clearTimeout(this._seckillTimer)
       this._seckillTimer = null
     }
   },

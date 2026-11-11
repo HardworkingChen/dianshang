@@ -1,285 +1,171 @@
 <template>
-  <div v-loading="loading" class="analytics-ui-page defense-page recommend-compact-page space-y-6">
-    <section class="recommend-page-header">
-      <div>
-        <h1 class="recommend-page-header__title">推荐效果分析</h1>
-      </div>
-      <div class="recommend-page-header__controls">
-        <div class="recommend-page-header__label">数据周期</div>
-        <el-radio-group v-model="selectedDays" size="large" @change="loadData">
-          <el-radio-button v-for="item in dayOptions" :key="item.value" :value="item.value">
-            {{ item.label }}
-          </el-radio-button>
-        </el-radio-group>
-        <div class="recommend-page-header__meta">
-          {{ dateRangeText }} · 用户 {{ formatNumber(summary.userCount) }} · 商品 {{ formatNumber(totalProducts) }}
+  <div v-loading="loading" class="analytics-ui-page analytics-page-shell recommend-compact-page space-y-6">
+    <AnalyticsPageHero
+      kicker="推荐效果"
+      title="推荐效果分析"
+      summary="看曝光、点击、成交和算法差异。"
+      :meta="`${dateRangeText} · 用户 ${formatNumber(summary.userCount)} · 商品 ${formatNumber(totalProducts)}`"
+      :chips="['曝光', '点击', '成交', '算法对比', '用户样本']"
+      :highlights="recommendHeroHighlights"
+    >
+      <template #actions>
+        <div class="recommend-page-header__controls">
+          <div class="recommend-page-header__label">数据周期</div>
+          <el-radio-group v-model="selectedDays" size="large" @change="loadData">
+            <el-radio-button v-for="item in dayOptions" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </el-radio-button>
+          </el-radio-group>
+        </div>
+      </template>
+    </AnalyticsPageHero>
+
+    <section class="analytics-metric-strip">
+      <article v-for="item in overviewCards" :key="item.title" class="analytics-metric-strip__item">
+        <span class="analytics-metric-strip__label">{{ item.title }}</span>
+        <strong class="analytics-metric-strip__value">{{ item.value }}</strong>
+        <span class="analytics-metric-strip__sub">{{ item.detail }}</span>
+      </article>
+    </section>
+
+    <section class="recommend-hero-grid">
+      <article v-for="item in heroCards" :key="item.title" class="analytics-panel recommend-hero-card">
+        <span class="recommend-hero-card__eyebrow">{{ item.eyebrow }}</span>
+        <strong class="recommend-hero-card__value">{{ item.value }}</strong>
+        <div class="recommend-hero-card__title">{{ item.title }}</div>
+        <div class="recommend-hero-card__detail">{{ item.detail }}</div>
+      </article>
+    </section>
+
+    <section class="analytics-panel recommend-overview-board">
+      <div class="analytics-panel__eyebrow">核心趋势</div>
+      <h3 class="analytics-panel__title">曝光、点击、成交</h3>
+      <div v-if="dailyTrend.length" ref="trendChartRef" class="mt-6 h-[360px] w-full"></div>
+      <el-empty v-else description="暂无趋势" />
+    </section>
+
+    <section class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+      <article class="analytics-panel recommend-panel p-6">
+        <div class="recommend-section-title">不同信号源的效果对比</div>
+        <p class="recommend-section-note">看曝光与转化。</p>
+        <div v-if="sceneMetrics.length" ref="sceneChartRef" class="mt-5 h-[340px] w-full"></div>
+        <el-empty v-else description="暂无信号源效果数据" />
+      </article>
+
+      <article class="analytics-panel recommend-panel p-6">
+        <div class="recommend-section-title">不同算法的效果对比</div>
+        <p class="recommend-section-note">同周期横向比较。</p>
+        <div v-if="algorithmMetrics.length" ref="algorithmChartRef" class="mt-5 h-[340px] w-full"></div>
+        <el-empty v-else description="暂无算法效果数据" />
+      </article>
+    </section>
+
+    <section class="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+      <article class="analytics-panel recommend-panel p-6">
+        <div class="recommend-section-title">各信号源最佳算法</div>
+        <el-table :data="sceneAlgorithmLeaders" size="small" stripe class="mt-4">
+          <el-table-column prop="sceneLabel" label="信号源" min-width="120" />
+          <el-table-column prop="algorithmLabel" label="最佳算法" min-width="160" />
+          <el-table-column label="场景占比" width="110" align="right">
+            <template #default="{ row }">{{ formatPercent(row.shareInsideScene) }}</template>
+          </el-table-column>
+          <el-table-column label="转化率" width="110" align="right">
+            <template #default="{ row }">{{ formatPercent(row.conversionRate) }}</template>
+          </el-table-column>
+        </el-table>
+      </article>
+
+      <article class="analytics-panel recommend-panel p-6">
+        <div class="recommend-section-title">最佳算法 × 人群组合</div>
+        <div class="recommend-inline-panel mt-4 p-5">
+          <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            {{ bestAlgorithmSegment.available ? `${bestAlgorithmSegment.segmentLabel} × ${bestAlgorithmSegment.algorithmLabel}` : '等待结果' }}
+          </div>
+          <p class="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{{ bestAlgorithmSegment.summary || '暂无组合数据。' }}</p>
+          <div v-if="bestAlgorithmSegment.available" class="mt-4 flex flex-wrap gap-2">
+            <span class="recommend-chip">转化 {{ formatPercent(bestAlgorithmSegment.conversionRate) }}</span>
+            <span class="recommend-chip">成功率 {{ formatPercent(bestAlgorithmSegment.successRate) }}</span>
+            <span class="recommend-chip">曝光 {{ formatNumber(bestAlgorithmSegment.exposureCount) }}</span>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="analytics-panel recommend-panel p-6">
+      <div class="recommend-section-title">同一用户的多算法样本</div>
+      <p class="recommend-section-note">切换样本，看结果差异。</p>
+      <div class="mt-4 grid grid-cols-1 gap-6 xl:grid-cols-[1.02fr_0.98fr]">
+        <div>
+          <div class="flex flex-wrap items-center gap-2">
+            <el-input-number v-model="proofUserId" :min="1" controls-position="right" class="!w-40" />
+            <el-button type="primary" :loading="proofLoading" @click="loadProofCase">查询样本</el-button>
+            <el-button plain @click="goToPreviewWithUser">预览详情</el-button>
+          </div>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button
+              v-for="id in sampleProofUsers"
+              :key="id"
+              type="button"
+              class="proof-user-chip"
+              :class="{ 'is-active': id === proofUserId }"
+              @click="applyProofUser(id)"
+            >
+              用户 {{ id }}
+            </button>
+          </div>
+          <div class="recommend-inline-panel mt-4 p-5">
+            <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              用户 {{ proofUserId }} / {{ proofSegmentName }} / {{ proofExperimentGroup }}
+            </div>
+            <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+              <li v-for="line in proofInsightLines" :key="line">{{ line }}</li>
+            </ul>
+          </div>
+          <el-alert v-if="proofError" class="mt-4" type="warning" show-icon :closable="false" :title="proofError" />
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <article v-for="item in proofAlgorithms" :key="item.key" class="recommend-proof-card">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ item.label }}</div>
+                <p class="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{{ item.hint }}</p>
+              </div>
+              <span class="recommend-inline-badge">{{ item.items.length }} 项</span>
+            </div>
+
+            <div class="mt-4 space-y-3">
+              <article v-for="product in item.items.slice(0, 3)" :key="`${item.key}-${product.id}`" class="recommend-proof-item">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0 flex-1">
+                    <div class="truncate text-sm font-medium text-slate-900 dark:text-slate-100">{{ product.name }}</div>
+                    <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">¥{{ product.price }} · 销量 {{ product.sales }}</div>
+                  </div>
+                  <span class="text-xs text-slate-400">#{{ product.rank }}</span>
+                </div>
+                <div class="mt-2 flex flex-wrap gap-2">
+                  <span v-for="label in proofSignalLabels(product.id)" :key="`${product.id}-${label}`" class="recommend-chip">
+                    {{ label }}
+                  </span>
+                </div>
+              </article>
+              <el-empty v-if="!item.items.length" description="暂无样本" :image-size="42" />
+            </div>
+          </article>
         </div>
       </div>
     </section>
-
-    <FeatureBrief
-      kicker="推荐归因"
-      title="指标判断与组成"
-      :items="recommendAnalyticsBrief"
-    />
-
-    <template v-if="activeTab === 'overview'">
-      <section class="defense-metric-strip">
-        <article v-for="item in overviewCards" :key="item.title" class="defense-metric-strip__item">
-          <span class="defense-metric-strip__label">{{ item.title }}</span>
-          <strong class="defense-metric-strip__value">{{ item.value }}</strong>
-          <span class="defense-metric-strip__sub">{{ item.detail }}</span>
-        </article>
-      </section>
-
-      <section class="defense-surface defense-surface--split recommend-overview-board">
-        <div class="defense-surface__main">
-          <div class="defense-surface__eyebrow">推荐归因</div>
-          <h3 class="defense-surface__title">曝光 · 点击 · 成交</h3>
-          <div v-if="dailyTrend.length" ref="trendChartRef" class="mt-6 h-[360px] w-full"></div>
-          <el-empty v-else description="暂无趋势" />
-        </div>
-
-        <aside class="defense-surface__side">
-          <div class="defense-surface__eyebrow">对比结论</div>
-          <h3 class="defense-surface__title">最优策略</h3>
-          <div class="defense-rail-list">
-            <article v-for="item in comparisonHighlights" :key="item.dimension" class="defense-rail-list__item">
-              <div class="defense-rail-list__label">{{ item.title }}</div>
-              <div class="defense-rail-list__title">{{ item.winnerLabel || '等待结果' }}</div>
-              <p class="recommend-overview-board__meta">
-                基线 {{ item.baselineLabel || '--' }} · 转化 {{ formatLift(item.conversionLiftRatio) }} · 成功率 {{ formatLift(item.successLiftRatio) }}
-              </p>
-            </article>
-          </div>
-        </aside>
-      </section>
-
-      <PageSectionTabs
-        v-model="activeTab"
-        :tabs="tabs"
-        primary-label="管理端"
-        page-label="推荐分析"
-        title="专题切换"
-        description=""
-        :active-label="activeTabInfo.label"
-      />
-    </template>
-
-    <template v-else-if="activeTab === 'compare'">
-      <PageSectionTabs
-        v-model="activeTab"
-        :tabs="tabs"
-        primary-label="管理端"
-        page-label="推荐分析"
-        title="专题切换"
-        description=""
-        :active-label="activeTabInfo.label"
-      />
-      <section class="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <article class="defense-surface recommend-panel p-6">
-          <div class="recommend-section-title">不同信号源的效果对比</div>
-          <div v-if="sceneMetrics.length" ref="sceneChartRef" class="mt-5 h-[340px] w-full"></div>
-          <el-empty v-else description="暂无信号源效果数据" />
-        </article>
-
-        <article class="defense-surface recommend-panel p-6">
-          <div class="recommend-section-title">不同算法的效果对比</div>
-          <div v-if="algorithmMetrics.length" ref="algorithmChartRef" class="mt-5 h-[340px] w-full"></div>
-          <el-empty v-else description="暂无算法效果数据" />
-        </article>
-      </section>
-
-      <section class="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <article class="defense-surface recommend-panel p-6">
-          <div class="recommend-section-title">各信号源最佳算法</div>
-          <el-table :data="sceneAlgorithmLeaders" size="small" stripe class="mt-4">
-            <el-table-column prop="sceneLabel" label="信号源" min-width="120" />
-            <el-table-column prop="algorithmLabel" label="最佳算法" min-width="160" />
-            <el-table-column label="场景占比" width="110" align="right">
-              <template #default="{ row }">{{ formatPercent(row.shareInsideScene) }}</template>
-            </el-table-column>
-            <el-table-column label="转化率" width="110" align="right">
-              <template #default="{ row }">{{ formatPercent(row.conversionRate) }}</template>
-            </el-table-column>
-          </el-table>
-        </article>
-
-        <article class="defense-surface recommend-panel p-6">
-          <div class="recommend-section-title">最佳算法 × 人群组合</div>
-          <div class="recommend-inline-panel mt-4 p-5">
-            <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              {{ bestAlgorithmSegment.available ? `${bestAlgorithmSegment.segmentLabel} × ${bestAlgorithmSegment.algorithmLabel}` : '等待结果' }}
-            </div>
-            <p class="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{{ bestAlgorithmSegment.summary || '暂无组合数据。' }}</p>
-            <div v-if="bestAlgorithmSegment.available" class="mt-4 flex flex-wrap gap-2">
-              <span class="recommend-chip">转化 {{ formatPercent(bestAlgorithmSegment.conversionRate) }}</span>
-              <span class="recommend-chip">成功率 {{ formatPercent(bestAlgorithmSegment.successRate) }}</span>
-              <span class="recommend-chip">曝光 {{ formatNumber(bestAlgorithmSegment.exposureCount) }}</span>
-            </div>
-          </div>
-        </article>
-      </section>
-    </template>
-
-    <template v-else-if="activeTab === 'optimize'">
-      <PageSectionTabs
-        v-model="activeTab"
-        :tabs="tabs"
-        primary-label="管理端"
-        page-label="推荐分析"
-        title="专题切换"
-        description=""
-        :active-label="activeTabInfo.label"
-      />
-      <section class="grid grid-cols-1 gap-5 xl:grid-cols-2">
-        <article v-for="item in optimizationStages" :key="item.key" class="defense-surface recommend-panel p-6">
-          <div class="flex items-center justify-between gap-3">
-            <div class="text-lg font-semibold text-slate-950 dark:text-slate-50">{{ item.title }}</div>
-            <span class="recommend-inline-badge">{{ item.focus }}</span>
-          </div>
-          <div class="mt-3 text-sm font-medium text-slate-700 dark:text-slate-200">{{ item.techStack }}</div>
-          <p class="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{{ item.evidence }}</p>
-          <p class="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">{{ item.result }}</p>
-          <div class="mt-4 border-t border-slate-200 pt-4 text-sm leading-6 text-slate-500 dark:border-slate-700 dark:text-slate-400">
-            {{ item.note }}
-          </div>
-        </article>
-      </section>
-
-      <section class="grid grid-cols-1 gap-5 xl:grid-cols-4">
-        <article v-for="item in diagnosticCards" :key="item.title" class="defense-surface recommend-panel p-5">
-          <div class="text-xs uppercase tracking-[0.18em] text-slate-400">{{ item.title }}</div>
-          <div class="mt-3 text-2xl font-semibold text-slate-950 dark:text-slate-50">{{ item.value }}</div>
-          <p class="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{{ item.summary }}</p>
-          <p class="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">{{ item.detail }}</p>
-        </article>
-      </section>
-    </template>
-
-    <template v-else-if="activeTab === 'sample'">
-      <PageSectionTabs
-        v-model="activeTab"
-        :tabs="tabs"
-        primary-label="管理端"
-        page-label="推荐分析"
-        title="专题切换"
-        description=""
-        :active-label="activeTabInfo.label"
-      />
-      <section class="defense-surface recommend-panel p-6">
-        <div class="grid grid-cols-1 gap-6 xl:grid-cols-[1.02fr_0.98fr]">
-          <div>
-            <div class="recommend-section-title">同一用户的多算法样本</div>
-            <div class="mt-4 flex flex-wrap items-center gap-2">
-              <el-input-number v-model="proofUserId" :min="1" controls-position="right" class="!w-40" />
-              <el-button type="primary" :loading="proofLoading" @click="loadProofCase">更新样本</el-button>
-              <el-button plain @click="goToPreviewWithUser">进入推荐预览</el-button>
-            </div>
-            <div class="mt-3 flex flex-wrap gap-2">
-              <button
-                v-for="id in sampleProofUsers"
-                :key="id"
-                type="button"
-                class="proof-user-chip"
-                :class="{ 'is-active': id === proofUserId }"
-                @click="applyProofUser(id)"
-              >
-                用户 {{ id }}
-              </button>
-            </div>
-            <div class="recommend-inline-panel mt-4 p-5">
-              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                用户 {{ proofUserId }} / {{ proofSegmentName }} / {{ proofExperimentGroup }}
-              </div>
-              <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
-                <li v-for="line in proofInsightLines" :key="line">{{ line }}</li>
-              </ul>
-            </div>
-            <el-alert v-if="proofError" class="mt-4" type="warning" show-icon :closable="false" :title="proofError" />
-          </div>
-
-          <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <article v-for="item in proofAlgorithms" :key="item.key" class="recommend-proof-card">
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ item.label }}</div>
-                  <p class="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{{ item.hint }}</p>
-                </div>
-                <span class="recommend-inline-badge">{{ item.items.length }} 项</span>
-              </div>
-
-              <div class="mt-4 space-y-3">
-                <article v-for="product in item.items.slice(0, 3)" :key="`${item.key}-${product.id}`" class="recommend-proof-item">
-                  <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0 flex-1">
-                      <div class="truncate text-sm font-medium text-slate-900 dark:text-slate-100">{{ product.name }}</div>
-                      <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">¥{{ product.price }} · 销量 {{ product.sales }}</div>
-                    </div>
-                    <span class="text-xs text-slate-400">#{{ product.rank }}</span>
-                  </div>
-                  <div class="mt-2 flex flex-wrap gap-2">
-                    <span v-for="label in proofSignalLabels(product.id)" :key="`${product.id}-${label}`" class="recommend-chip">
-                      {{ label }}
-                    </span>
-                  </div>
-                </article>
-                <el-empty v-if="!item.items.length" description="暂无样本" :image-size="42" />
-              </div>
-            </article>
-          </div>
-        </div>
-      </section>
-    </template>
-
-    <template v-else>
-      <PageSectionTabs
-        v-model="activeTab"
-        :tabs="tabs"
-        primary-label="管理端"
-        page-label="推荐分析"
-        title="专题切换"
-        description=""
-        :active-label="activeTabInfo.label"
-      />
-      <section class="grid grid-cols-1 gap-6 xl:grid-cols-[1.08fr_0.92fr]">
-        <article class="defense-surface recommend-panel p-6">
-          <div class="recommend-section-title">结果解读</div>
-          <ol class="mt-4 space-y-3">
-            <li v-for="(line, index) in defenseNarrative" :key="`${index}-${line}`" class="recommend-defense-row">
-              <span class="recommend-order">{{ index + 1 }}</span>
-              <p class="text-sm leading-6 text-slate-600 dark:text-slate-300">{{ line }}</p>
-            </li>
-          </ol>
-        </article>
-
-        <article class="defense-surface recommend-panel p-6">
-          <div class="recommend-section-title">核心指标口径</div>
-          <div class="mt-4 space-y-3">
-            <article v-for="item in formulaRows" :key="item.title" class="recommend-formula-card">
-              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ item.title }}</div>
-              <p class="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">{{ item.description }}</p>
-              <div class="mt-3 rounded-2xl bg-slate-950 px-4 py-3 font-mono text-xs text-cyan-50">
-                {{ item.expression }}
-              </div>
-            </article>
-          </div>
-        </article>
-      </section>
-    </template>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { getAdminRecommendAnalytics } from '../../api/admin'
+import AnalyticsPageHero from '../../components/analytics/AnalyticsPageHero.vue'
 import { getRecommendCompare, getRecommendRealtime } from '../../api/recommend'
-import PageSectionTabs from '../../components/PageSectionTabs.vue'
-import FeatureBrief from '../../components/FeatureBrief.vue'
 import { getAnalyticsChartTheme } from '../../utils/chartTheme'
 
-const route = useRoute()
 const router = useRouter()
 
 const dayOptions = [
@@ -287,20 +173,6 @@ const dayOptions = [
   { label: '近 30 天', value: 30 },
   { label: '近 90 天', value: 90 },
 ]
-
-const tabs = [
-  { key: 'overview', label: '归因总览', hint: '结果', description: '' },
-  { key: 'compare', label: '策略对比', hint: '差异', description: '' },
-  { key: 'optimize', label: '优化分层', hint: '实现', description: '' },
-  { key: 'sample', label: '样本验证', hint: '样本', description: '' },
-  { key: 'defense', label: '运营结论', hint: '结论', description: '' },
-]
-
-const tabKeySet = new Set(tabs.map(item => item.key))
-const normalizeTab = value => {
-  const next = String(value || '').trim()
-  return tabKeySet.has(next) ? next : tabs[0].key
-}
 
 const sceneLabelMap = {
   personal: '主信号源',
@@ -316,23 +188,17 @@ const sceneLabelMap = {
 }
 
 const proofAlgorithmMeta = [
-  { key: 'hybrid', label: 'Hybrid 混合推荐', hint: '综合多路召回和排序结果' },
-  { key: 'cf', label: 'CF 协同过滤', hint: '由相似用户行为驱动' },
-  { key: 'cb', label: 'CB 内容推荐', hint: '由品类与标签偏好驱动' },
-  { key: 'hot', label: '热门候选', hint: '适合作为基线和冷启动候选池' },
+  { key: 'hybrid', label: '混合推荐', hint: '多路召回综合排序' },
+  { key: 'cf', label: '协同过滤', hint: '相似用户行为驱动' },
+  { key: 'cb', label: '内容推荐', hint: '按品类与标签匹配' },
+  { key: 'hot', label: '热门兜底', hint: '冷启动与基线候选' },
 ]
 
 const sampleProofUsers = [1, 7, 12, 25]
 
 const loading = ref(false)
 const selectedDays = ref(30)
-const recommendAnalyticsBrief = [
-  { label: '判断依据', value: 'Exposure / Click / Cart / Purchase', text: '同 token 归因。' },
-  { label: '功能组成', value: 'Signal / Algorithm / Segment', text: '三维对比。' },
-  { label: '输出结果', value: 'CTR / CVR / Lift', text: '输出最优策略。' },
-]
 const dashboard = ref({})
-const activeTab = ref(normalizeTab(route.query.tab))
 const proofUserId = ref(1)
 const proofLoading = ref(false)
 const proofError = ref('')
@@ -353,8 +219,6 @@ const sceneMetrics = computed(() => normalizeMetricList(performance.value?.scene
 const algorithmMetrics = computed(() => normalizeMetricList(performance.value?.algorithmMetrics).map(item => ({ ...item, label: formatAlgorithmLabel(item.algorithm) })))
 const dailyTrend = computed(() => normalizeMetricList(performance.value?.dailyTrend))
 const comparisonHighlights = computed(() => Array.isArray(performance.value?.comparisonHighlights) ? performance.value.comparisonHighlights : [])
-const optimizationStages = computed(() => Array.isArray(performance.value?.optimizationStages) ? performance.value.optimizationStages : [])
-const diagnosticCards = computed(() => Array.isArray(performance.value?.diagnosticCards) ? performance.value.diagnosticCards : [])
 const sceneAlgorithmLeaders = computed(() =>
   Array.isArray(performance.value?.sceneAlgorithmLeaders)
     ? performance.value.sceneAlgorithmLeaders.map(item => ({
@@ -365,10 +229,8 @@ const sceneAlgorithmLeaders = computed(() =>
 )
 const bestAlgorithmSegment = computed(() => performance.value?.bestAlgorithmSegment || {})
 const distributionQuality = computed(() => performance.value?.distributionQuality || {})
-const defenseNarrative = computed(() => Array.isArray(performance.value?.defenseNarrative) ? performance.value.defenseNarrative : [])
 const totalProducts = computed(() => toNumber(dashboard.value?.totalProducts))
 const totalUsers = computed(() => toNumber(dashboard.value?.totalUsers))
-const activeDays = computed(() => toNumber(performance.value?.days) || selectedDays.value)
 const coverageRate = computed(() => totalUsers.value > 0 ? (summary.value.userCount / totalUsers.value) * 100 : 0)
 const sevenDayRepurchase = computed(() => ({
   attributedPurchaseUsers: toNumber(performance.value?.sevenDayRepurchase?.attributedPurchaseUsers),
@@ -376,7 +238,6 @@ const sevenDayRepurchase = computed(() => ({
   sevenDayRepurchaseRate: toNumber(performance.value?.sevenDayRepurchase?.sevenDayRepurchaseRate),
 }))
 const dateRangeText = computed(() => `${performance.value?.startDate || '--'} 至 ${performance.value?.endDate || '--'}`)
-const activeTabInfo = computed(() => tabs.find(item => item.key === activeTab.value) || tabs[0])
 
 const heroCards = computed(() => {
   const algorithmHighlight = comparisonHighlights.value.find(item => item.dimension === 'algorithm') || {}
@@ -387,6 +248,11 @@ const heroCards = computed(() => {
     { eyebrow: '治理', title: '流量健康度', value: formatPercent(distributionQuality.value.qualityScore), detail: distributionQuality.value.insight || '分布健康' },
   ]
 })
+const recommendHeroHighlights = computed(() => heroCards.value.map(item => ({
+  label: item.title,
+  value: item.value,
+  note: item.detail,
+})))
 
 const overviewCards = computed(() => [
   { eyebrow: '点击', title: '点击率', value: formatPercent(summary.value.clickThroughRate), detail: `${formatNumber(summary.value.clickCount)} 次` },
@@ -416,20 +282,8 @@ const proofInsightLines = computed(() => {
   return [
     `实验组 = ${proofExperimentGroup.value}；分群 = ${proofSegmentName.value}。`,
     `Hybrid∩Hot = ${overlap} 项。`,
-    cfOnly.length ? `CF-only: ${cfOnly.join('、')}。` : 'CF-only: 0。',
-    cbOnly.length ? `CB-only: ${cbOnly.join('、')}。` : 'CB-only: 0。',
-  ]
-})
-
-const formulaRows = computed(() => {
-  const formula = performance.value?.formula || {}
-  return [
-    { title: '成交转化率', description: 'purchase / exposure', expression: String(formula.conversionRate || 'purchaseCount / exposureCount * 100') },
-    { title: '推荐成功率', description: 'success / exposure', expression: String(formula.recommendationSuccessRate || 'successCount / exposureCount * 100') },
-    { title: '点击率', description: 'click / exposure', expression: String(formula.clickThroughRate || 'clickCount / exposureCount * 100') },
-    { title: '加购率', description: 'cart / exposure', expression: String(formula.addToCartRate || 'cartCount / exposureCount * 100') },
-    { title: '点击后转化率', description: 'purchase / click', expression: String(formula.postClickConversionRate || 'purchaseCount / clickCount * 100') },
-    { title: '7日复购率', description: 'repurchase / attributedPurchaseUsers', expression: String(formula.sevenDayRepurchaseRate || 'repurchaseUsers / attributedPurchaseUsers * 100') },
+    cfOnly.length ? `仅协同命中：${cfOnly.join('、')}。` : '仅协同命中：0。',
+    cbOnly.length ? `仅内容命中：${cbOnly.join('、')}。` : '仅内容命中：0。',
   ]
 })
 
@@ -442,13 +296,19 @@ function formatNumber(value) {
   return toNumber(value).toLocaleString('zh-CN')
 }
 
+function normalizePercentValue(value) {
+  const number = toNumber(value)
+  return Math.abs(number) > 0 && Math.abs(number) <= 1 ? number * 100 : number
+}
+
 function formatPercent(value) {
-  return `${toNumber(value).toFixed(2)}%`
+  return `${normalizePercentValue(value).toFixed(2)}%`
 }
 
 function formatLift(value) {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return '--'
-  const result = Number(value) * 100
+  const raw = Number(value)
+  const result = Math.abs(raw) <= 1 ? raw * 100 : raw
   return `${result >= 0 ? '+' : ''}${result.toFixed(2)}%`
 }
 
@@ -481,10 +341,10 @@ function formatAlgorithmLabel(algorithm) {
   const value = String(algorithm || '').trim()
   const normalized = value.toLowerCase()
   if (!value) return '未知算法'
-  if (normalized.includes('hybrid')) return 'Hybrid 混合推荐'
-  if (normalized === 'cf' || normalized.includes('_cf') || normalized.includes('collaborative')) return 'CF 协同过滤'
-  if (normalized === 'cb' || normalized.includes('content')) return 'CB 内容推荐'
-  if (normalized.includes('hot') || normalized.includes('snapshot')) return '热门候选'
+  if (normalized.includes('hybrid')) return '混合推荐'
+  if (normalized === 'cf' || normalized.includes('_cf') || normalized.includes('collaborative')) return '协同过滤'
+  if (normalized === 'cb' || normalized.includes('content')) return '内容推荐'
+  if (normalized.includes('hot') || normalized.includes('snapshot')) return '热门兜底'
   if (normalized.includes('control')) return '对照策略'
   return value
 }
@@ -642,22 +502,6 @@ async function loadData() {
   }
 }
 
-watch(() => route.query.tab, value => {
-  const next = normalizeTab(value)
-  if (next !== activeTab.value) activeTab.value = next
-})
-
-watch(activeTab, value => {
-  const next = normalizeTab(value)
-  const current = normalizeTab(route.query.tab)
-  if (next !== current) {
-    router.replace({ query: { ...route.query, tab: next === tabs[0].key ? undefined : next } })
-  }
-  nextTick(() => {
-    renderCharts()
-  })
-})
-
 onMounted(async () => {
   await loadData()
   window.addEventListener('resize', handleResize)
@@ -699,6 +543,13 @@ onUnmounted(() => {
   color: #020617;
 }
 
+.recommend-page-header__summary {
+  margin-top: 10px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #64748b;
+}
+
 .recommend-page-header__controls {
   display: flex;
   flex-direction: column;
@@ -721,6 +572,50 @@ onUnmounted(() => {
   text-align: right;
 }
 
+.recommend-hero-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.recommend-hero-card {
+  padding: 18px;
+  border: 1px solid var(--recommend-border);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.recommend-hero-card__eyebrow {
+  display: block;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.recommend-hero-card__value {
+  display: block;
+  margin-top: 14px;
+  color: #0f172a;
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.recommend-hero-card__title {
+  margin-top: 8px;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.recommend-hero-card__detail,
+.recommend-section-note {
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
 .recommend-compact-hero,
 .recommend-summary-card,
 .recommend-side-card,
@@ -732,6 +627,7 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.96);
 }
 
+.dark .recommend-hero-card,
 .dark .recommend-compact-hero,
 .dark .recommend-summary-card,
 .dark .recommend-side-card,
@@ -763,10 +659,10 @@ onUnmounted(() => {
 .recommend-inline-badge {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
+  border-radius: 4px;
   border: 1px solid rgba(148, 163, 184, 0.24);
-  background: rgba(255, 255, 255, 0.86);
-  padding: 7px 12px;
+  background: rgba(248, 250, 252, 0.96);
+  padding: 6px 10px;
   font-size: 12px;
   color: #475569;
 }
@@ -783,7 +679,7 @@ onUnmounted(() => {
 .recommend-highlight-card,
 .recommend-proof-card,
 .recommend-formula-card {
-  border-radius: 20px;
+  border-radius: 8px;
   padding: 18px;
 }
 
@@ -829,13 +725,19 @@ onUnmounted(() => {
 }
 
 .recommend-proof-item {
-  border-radius: 18px;
+  border-radius: 8px;
   padding: 14px;
+}
+
+.recommend-inline-panel {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.88);
 }
 
 .proof-user-chip {
   border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 999px;
+  border-radius: 4px;
   background: rgba(255, 255, 255, 0.86);
   color: #475569;
   font-size: 12px;
@@ -862,31 +764,6 @@ onUnmounted(() => {
   color: #99f6e4;
 }
 
-.recommend-defense-row {
-  display: grid;
-  grid-template-columns: 38px 1fr;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.recommend-order {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.06);
-  color: #0f172a;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.dark .recommend-order {
-  background: rgba(148, 163, 184, 0.12);
-  color: #e2e8f0;
-}
-
 .dark .recommend-page-header {
   border-bottom-color: rgba(71, 85, 105, 0.5);
 }
@@ -895,12 +772,23 @@ onUnmounted(() => {
   color: #f8fafc;
 }
 
+.dark .recommend-page-header__summary,
+.dark .recommend-hero-card__detail,
+.dark .recommend-section-note {
+  color: #cbd5e1;
+}
+
 .dark .recommend-page-header__label {
   color: #99f6e4;
 }
 
 .dark .recommend-page-header__meta {
   color: #94a3b8;
+}
+
+.dark .recommend-hero-card__value,
+.dark .recommend-hero-card__title {
+  color: #f8fafc;
 }
 
 @media (max-width: 767px) {
@@ -917,6 +805,10 @@ onUnmounted(() => {
     text-align: left;
   }
 
+  .recommend-hero-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .recommend-proof-card {
     padding: 16px;
   }
@@ -927,6 +819,12 @@ onUnmounted(() => {
 
   .recommend-overview-board__meta {
     line-height: 1.7;
+  }
+}
+
+@media (max-width: 560px) {
+  .recommend-hero-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

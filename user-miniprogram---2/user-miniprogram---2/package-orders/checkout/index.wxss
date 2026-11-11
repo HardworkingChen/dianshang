@@ -1199,3 +1199,243 @@
   font-size: 27rpx !important;
 }
 
+/* Final visual contract: checkout hierarchy and density */
+.pay-page {
+  background: #f6f7fb !important;
+}
+
+.pay-scroll {
+  padding-left: 16rpx !important;
+  padding-right: 16rpx !important;
+}
+
+.section,
+.submit-bar,
+.coupon-picker {
+  margin-top: 12rpx !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  border-radius: 20rpx !important;
+  border: 1rpx solid rgba(17, 17, 17, 0.06) !important;
+  background: rgba(255, 255, 255, 0.98) !important;
+  box-shadow: none !important;
+}
+
+.section {
+  padding: 20rpx 18rpx !important;
+}
+
+.section-head {
+  margin-bottom: 10rpx !important;
+}
+
+.section-title,
+.goods-title,
+.payment-name,
+.coupon-name {
+  font-size: 28rpx !important;
+  line-height: 1.36 !important;
+}
+
+.section-tip,
+.goods-meta,
+.payment-balance,
+.summary-label,
+.submit-tip,
+.coupon-option-name,
+.coupon-option-desc,
+.coupon-meta,
+.address-detail,
+.user-phone,
+.goods-origin,
+.goods-qty {
+  font-size: 20rpx !important;
+  line-height: 1.46 !important;
+}
+
+.section-badge,
+.warning-tag,
+.coupon-tag {
+  min-height: 34rpx !important;
+  font-size: 18rpx !important;
+}
+
+.warning {
+  background: #f2f7ff !important;
+  border-color: rgba(0, 122, 255, 0.16) !important;
+}
+
+.goods-item {
+  gap: 10rpx !important;
+  margin-bottom: 10rpx !important;
+}
+
+.goods-img {
+  width: 116rpx !important;
+  height: 116rpx !important;
+  border-radius: 14rpx !important;
+}
+
+.goods-price,
+.coupon-discount,
+.summary-value,
+.total-price,
+.submit-price {
+  font-size: 30rpx !important;
+}
+
+.checkout-signals {
+  border-color: rgba(17, 17, 17, 0.06) !important;
+  background: rgba(255, 255, 255, 0.98) !important;
+}
+
+.signal-grid {
+  gap: 8rpx !important;
+}
+
+.signal-item {
+  min-height: 90rpx !important;
+  padding: 12rpx !important;
+  border-radius: 14rpx !important;
+}
+
+.signal-label {
+  font-size: 17rpx !important;
+}
+
+.signal-value {
+  margin-top: 4rpx !important;
+  font-size: 20rpx !important;
+  line-height: 1.38 !important;
+}
+
+.attribution-card {
+  margin-top: 10rpx !important;
+  padding: 14rpx !important;
+  border-radius: 14rpx !important;
+}
+
+.attribution-label {
+  font-size: 16rpx !important;
+}
+
+.attribution-source {
+  font-size: 20rpx !important;
+}
+
+.attribution-token {
+  font-size: 16rpx !important;
+  padding: 4rpx 10rpx !important;
+}
+
+.smart-guide {
+  padding: 18rpx !important;
+}
+
+.smart-guide-head {
+  align-items: center !important;
+}
+
+.smart-guide-icon {
+  width: 34rpx !important;
+  height: 34rpx !important;
+  border-radius: 10rpx !important;
+}
+
+.smart-guide-apply {
+  min-width: 92rpx !important;
+  height: 38rpx !important;
+  font-size: 17rpx !important;
+}
+
+.smart-guide-highlight,
+.smart-guide-why,
+.smart-guide-topup {
+  border-radius: 14rpx !important;
+  background: #f6f7fb !important;
+}
+
+.smart-guide-copy,
+.smart-guide-why,
+.smart-guide-alt,
+.smart-guide-topup {
+  display: none !important;
+}
+
+.payment-item {
+  padding: 12rpx !important;
+  border-radius: 14rpx !important;
+}
+
+.payment-icon {
+  width: 38rpx !important;
+  height: 38rpx !important;
+}
+
+.coupon-picker {
+  margin: 0 !important;
+  border-radius: 24rpx 24rpx 0 0 !important;
+  border: none !important;
+}
+
+.coupon-option {
+  padding: 10rpx !important;
+  border-radius: 14rpx !important;
+}
+
+.coupon-option-band {
+  width: 98rpx !important;
+  height: 82rpx !important;
+}
+
+.coupon-note {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 18rpx;
+  line-height: 1.42;
+  color: #8a93a3;
+}
+
+.submit-wrap {
+  padding: 0 14rpx calc(10rpx + env(safe-area-inset-bottom)) !important;
+  background: linear-gradient(180deg, rgba(246, 247, 251, 0), rgba(246, 247, 251, 0.9) 45%, rgba(246, 247, 251, 0.98) 100%) !important;
+}
+
+.submit-bar {
+  min-height: 94rpx !important;
+  padding: 12rpx !important;
+}
+
+.submit-button,
+.submit-btn {
+  min-height: 72rpx !important;
+  font-size: 24rpx !important;
+}
+
+.ai-save-fab {
+  position: absolute;
+  top: -98rpx;
+  right: 20rpx;
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+  border: 2rpx solid rgba(255, 255, 255, 0.85);
+  background: linear-gradient(135deg, #007aff 0%, #27a9ff 100%);
+  box-shadow: 0 14rpx 30rpx rgba(0, 122, 255, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 24;
+}
+
+.ai-save-fab-text {
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 760;
+  letter-spacing: 1rpx;
+}
+
+.ai-save-fab-disabled {
+  opacity: 0.56;
+}
+

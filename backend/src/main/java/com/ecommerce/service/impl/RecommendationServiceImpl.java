@@ -27,6 +27,7 @@ import com.ecommerce.mapper.RecommendationEventMapper;
 import com.ecommerce.mapper.UserMapper;
 import com.ecommerce.mapper.UserBehaviorMapper;
 import com.ecommerce.recommendation.ABTestFramework;
+import com.ecommerce.recommendation.ColdStartRecommendationService;
 import com.ecommerce.recommendation.CollaborativeFiltering;
 import com.ecommerce.recommendation.HybridRecommendationEngine;
 import com.ecommerce.recommendation.RecommendationAttributionService;
@@ -41,6 +42,7 @@ import com.ecommerce.service.ProductService;
 import com.ecommerce.service.RecommendationService;
 import com.ecommerce.service.SeckillService;
 import com.ecommerce.service.StreamRealtimeFeatureService;
+import com.ecommerce.util.ProductVisibilityUtil;
 import com.ecommerce.utils.RedisUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -109,6 +111,7 @@ public class RecommendationServiceImpl implements RecommendationService {
     private static final String SOURCE_LIVE = "live";
     private static final String ALGO_HYBRID_LIVE_CF = "hybrid_live_cf";
     private static final String ALGO_HYBRID_LIVE_NO_CF = "hybrid_live_no_cf";
+    private static final String MODEL_VERSION_COLD_START_BOOTSTRAP = "cold-start-bootstrap-v1";
 
     @Autowired
     private HybridRecommendationEngine hybridEngine;
@@ -184,6 +187,9 @@ public class RecommendationServiceImpl implements RecommendationService {
 
     @Autowired
     private UserPreferenceBootstrapService userPreferenceBootstrapService;
+
+    @Autowired
+    private ColdStartRecommendationService coldStartRecommendationService;
 
     @Autowired(required = false)
     private com.ecommerce.service.StreamRealtimeRedisSinkService streamRealtimeRedisSinkService;
@@ -482,6 +488,14 @@ public class RecommendationServiceImpl implements RecommendationService {
         ensureUserPreferenceReady(userId);
         int safeLimit = normalizeLimit(limit);
         ClusterContext clusterContext = loadClusterContext(userId);
+        if (shouldUseBootstrapRecommendations(userId)) {
+            return buildBootstrapLiveRecommendations(
+                    userId,
+                    safeLimit,
+                    SCENE_PERSONAL,
+                    clusterContext,
+                    ColdStartRecommendationService.Strategy.HYBRID);
+        }
         boolean freshSignalPreferred = shouldPreferLiveRecommendations(userId);
         boolean livePriorityEnabled = livePriorityPersonalEnabled || freshSignalPreferred;
         LiveRecommendationDecision liveDecision = null;
@@ -810,6 +824,14 @@ public class RecommendationServiceImpl implements RecommendationService {
         ensureUserPreferenceReady(userId);
         int safeLimit = normalizeLimit(limit);
         ClusterContext clusterContext = loadClusterContext(userId);
+        if (shouldUseBootstrapRecommendations(userId)) {
+            return buildBootstrapLiveRecommendations(
+                    userId,
+                    safeLimit,
+                    SCENE_GUESS_YOU_LIKE,
+                    clusterContext,
+                    ColdStartRecommendationService.Strategy.HYBRID);
+        }
         boolean freshSignalPreferred = shouldPreferLiveRecommendations(userId);
 
         boolean isControlGroup = false;
@@ -907,6 +929,15 @@ public class RecommendationServiceImpl implements RecommendationService {
         ensureUserPreferenceReady(userId);
         int safeLimit = normalizeLimit(limit);
         ClusterContext clusterContext = loadClusterContext(userId);
+        if (shouldUseBootstrapRecommendations(userId)) {
+            return buildBootstrapExplanationResponse(
+                    userId,
+                    safeLimit,
+                    SCENE_PERSONAL,
+                    clusterContext,
+                    ColdStartRecommendationService.Strategy.HYBRID,
+                    forcePersonalized);
+        }
         boolean freshSignalPreferred = shouldPreferLiveRecommendations(userId);
         boolean preferLive = forcePersonalized || livePriorityPersonalEnabled || freshSignalPreferred;
         List<AnalyticsRecommendationResult> snapshotRows = preferLive
@@ -1101,7 +1132,7 @@ public class RecommendationServiceImpl implements RecommendationService {
                 .collect(Collectors.toList()));
         profile.put("topTags", userTags.stream().limit(5).collect(Collectors.toList()));
         profile.put("shoppingMomentum", buildShoppingMomentum(profile.get("behaviorStats")));
-        profile.put("journeyStage", buildJourneyStage(categoryWeights, userTags, userVector.size()));
+        profile.put("journeyStage", coldStartRecommendationService.resolveStage(userId).toMap());
         profile.put("realtimeFeatureEnriched", realtimeFeatureEnriched);
 
         Map<String, Object> experiment = buildExperimentMeta(userId, forcePersonalized);
@@ -1543,6 +1574,112 @@ public class RecommendationServiceImpl implements RecommendationService {
         }
         String algorithmTag = resolveLiveAlgorithmTag(userId);
         return new LiveRecommendationDecision(ranked, algorithmTag);
+    }
+
+    private boolean shouldUseBootstrapRecommendations(Long userId) {
+        return userId != null
+                && userId > 0
+                && coldStartRecommendationService.shouldUseBootstrapStrategy(userId);
+    }
+
+    private List<Product> buildBootstrapLiveRecommendations(Long userId,
+                                                            int limit,
+                                                            String scene,
+                                                            ClusterContext clusterContext,
+                                                            ColdStartRecommendationService.Strategy strategy) {
+        int safeLimit = normalizeLimit(limit);
+        String sourceType = resolveBootstrapSourceType(strategy);
+        List<Product> products = coldStartRecommendationService.buildCandidates(
+                userId,
+                safeLimit,
+                strategy,
+                "bootstrap-live:" + scene + ":" + userId);
+        return attachExposureTracking(
+                products,
+                userId,
+                scene,
+                sourceType,
+                clusterContext,
+                Collections.emptyMap(),
+                sourceType,
+                MODEL_VERSION_COLD_START_BOOTSTRAP);
+    }
+
+    private Map<String, Object> buildBootstrapExplanationResponse(Long userId,
+                                                                  int limit,
+                                                                  String scene,
+                                                                  ClusterContext clusterContext,
+                                                                  ColdStartRecommendationService.Strategy strategy,
+                                                                  boolean forcePersonalized) {
+        int safeLimit = normalizeLimit(limit);
+        String sourceType = resolveBootstrapSourceType(strategy);
+        List<Product> products = coldStartRecommendationService.buildCandidates(
+                userId,
+                safeLimit,
+                strategy,
+                "bootstrap-explain:" + scene + ":" + userId);
+        products = applyFeedDiversityByScene(products, safeLimit, scene);
+        if (SCENE_PERSONAL.equals(scene) || SCENE_GUESS_YOU_LIKE.equals(scene)) {
+            products = enforceTopPreferenceCoverage(products, userId, safeLimit);
+        }
+
+        List<Long> productIds = products.stream()
+                .map(Product::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        List<Map<String, Object>> explanations = new ArrayList<>();
+        for (Product product : products) {
+            if (product == null || product.getId() == null) {
+                continue;
+            }
+            Map<String, Object> explanation = new LinkedHashMap<>();
+            explanation.put("productId", product.getId());
+            explanation.put("primaryReason", firstNonEmpty(
+                    product.getReasonType(),
+                    buildDefaultReasonTypeByScene(scene, sourceType)));
+            explanation.put("reasonText", firstNonEmpty(
+                    product.getRecommendReason(),
+                    buildDefaultReasonByScene(scene, sourceType)));
+            if (product.getMatchedReasonTags() != null && !product.getMatchedReasonTags().isEmpty()) {
+                explanation.put("matchedTags", product.getMatchedReasonTags());
+            }
+            explanations.add(explanation);
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("productIds", productIds);
+        result.put("products", products);
+        result.put("explanations", explanations);
+        result.put("sourceType", sourceType);
+        result.put("modelVersion", MODEL_VERSION_COLD_START_BOOTSTRAP);
+        result.put("bootstrapStrategy", true);
+        result.put("journeyStage", coldStartRecommendationService.resolveStage(userId).toMap());
+        result.putAll(buildExperimentMeta(userId, forcePersonalized));
+
+        enrichProductsWithExplanationMetadata(
+                products,
+                explanations,
+                scene,
+                sourceType,
+                MODEL_VERSION_COLD_START_BOOTSTRAP,
+                null,
+                userId);
+        result.put("dataFreshness", products.isEmpty()
+                ? "近实时"
+                : firstNonEmpty(products.get(0).getDataFreshness(), "近实时"));
+        enrichExplanationWithCluster(result, clusterContext);
+        enrichRecommendationNarrative(result, products, clusterContext);
+        return result;
+    }
+
+    private String resolveBootstrapSourceType(ColdStartRecommendationService.Strategy strategy) {
+        if (strategy == ColdStartRecommendationService.Strategy.COLLABORATIVE) {
+            return "cold_start_collaborative";
+        }
+        if (strategy == ColdStartRecommendationService.Strategy.CONTENT) {
+            return "cold_start_content";
+        }
+        return "cold_start_hybrid";
     }
 
     private LiveRecommendationDecision buildGuessYouLikeLiveDecision(Long userId,
@@ -2224,24 +2361,18 @@ public class RecommendationServiceImpl implements RecommendationService {
         }
 
         try {
-            AnalyticsRecommendationResult latest = firstOrNull(analyticsRecommendationResultMapper.selectList(
-                    new LambdaQueryWrapper<AnalyticsRecommendationResult>()
-                            .eq(AnalyticsRecommendationResult::getScene, scene)
-                            .eq(AnalyticsRecommendationResult::getUserId, snapshotUserId)
-                            .orderByDesc(AnalyticsRecommendationResult::getSnapshotDate)
-                            .orderByAsc(AnalyticsRecommendationResult::getRankNo)
-                            .last("LIMIT 1")));
-            if (latest == null || latest.getSnapshotDate() == null) {
+            LocalDate latestSnapshotDate = analyticsRecommendationResultMapper
+                    .selectLatestSnapshotDate(scene, snapshotUserId);
+            if (latestSnapshotDate == null) {
                 return Collections.emptyList();
             }
 
-            return analyticsRecommendationResultMapper.selectList(
-                    new LambdaQueryWrapper<AnalyticsRecommendationResult>()
-                            .eq(AnalyticsRecommendationResult::getScene, scene)
-                            .eq(AnalyticsRecommendationResult::getUserId, snapshotUserId)
-                            .eq(AnalyticsRecommendationResult::getSnapshotDate, latest.getSnapshotDate())
-                            .orderByAsc(AnalyticsRecommendationResult::getRankNo)
-                            .last("LIMIT " + getSnapshotFetchLimit(limit)));
+            List<AnalyticsRecommendationResult> rows = analyticsRecommendationResultMapper.selectSnapshotRows(
+                    scene,
+                    snapshotUserId,
+                    latestSnapshotDate,
+                    getSnapshotFetchLimit(limit));
+            return rows == null ? Collections.emptyList() : rows;
         } catch (Exception exception) {
             log.warn("[Recommendation] Failed to load {} snapshot for user {}: {}",
                     scene, snapshotUserId, exception.getMessage());
@@ -2251,23 +2382,15 @@ public class RecommendationServiceImpl implements RecommendationService {
 
     private List<Product> loadSimilaritySnapshotProducts(Long productId, int limit) {
         try {
-            AnalyticsProductSimilarity latest = firstOrNull(analyticsProductSimilarityMapper.selectList(
-                    new LambdaQueryWrapper<AnalyticsProductSimilarity>()
-                            .eq(AnalyticsProductSimilarity::getProductId, productId)
-                            .orderByDesc(AnalyticsProductSimilarity::getSnapshotDate)
-                            .orderByAsc(AnalyticsProductSimilarity::getRankNo)
-                            .last("LIMIT 1")));
-            if (latest == null || latest.getSnapshotDate() == null) {
+            LocalDate latestSnapshotDate = analyticsProductSimilarityMapper.selectLatestSnapshotDate(productId);
+            if (latestSnapshotDate == null) {
                 return Collections.emptyList();
             }
 
-            List<AnalyticsProductSimilarity> rows = analyticsProductSimilarityMapper.selectList(
-                    new LambdaQueryWrapper<AnalyticsProductSimilarity>()
-                            .eq(AnalyticsProductSimilarity::getProductId, productId)
-                            .eq(AnalyticsProductSimilarity::getSnapshotDate, latest.getSnapshotDate())
-                            .orderByAsc(AnalyticsProductSimilarity::getRankNo)
-                            .orderByDesc(AnalyticsProductSimilarity::getSimilarity)
-                            .last("LIMIT " + getSnapshotFetchLimit(limit)));
+            List<AnalyticsProductSimilarity> rows = analyticsProductSimilarityMapper.selectSnapshotRows(
+                    productId,
+                    latestSnapshotDate,
+                    getSnapshotFetchLimit(limit));
             if (rows.isEmpty()) {
                 return Collections.emptyList();
             }
@@ -2501,6 +2624,9 @@ public class RecommendationServiceImpl implements RecommendationService {
                 continue;
             }
             if (!Objects.equals(product.getStatus(), Constants.ProductStatus.ON_SHELF)) {
+                continue;
+            }
+            if (ProductVisibilityUtil.shouldHideFromRecommendation(product)) {
                 continue;
             }
             shelfProducts.add(product);

@@ -2,18 +2,10 @@
 <custom-nav-bar title="{{pageTitle}}" showBack="{{true}}" backgroundColor="#ffffff" color="#111111"></custom-nav-bar>
 
   <view class="hero-panel">
-    <view class="hero-eyebrow">搜索结果</view>
     <view class="hero-title" wx:if="{{keyword}}">“{{keyword}}” 的结果</view>
     <view class="hero-title" wx:elif="{{categoryName}}">分类 · {{categoryName}}</view>
-    <view class="hero-title" wx:else>商品检索</view>
-    <view class="hero-desc" wx:if="{{!loading && products.length}}">{{totalCount || products.length}} 件商品</view>
-    <view class="hero-desc" wx:else>下拉可刷新，继续下滑可加载更多结果。</view>
-  </view>
-
-  <view class="search-tip" wx:if="{{keyword || categoryName}}">
-    <text class="search-tip-text search-tip-chip" wx:if="{{keyword}}">关键词：{{keyword}}</text>
-    <text class="search-tip-text search-tip-chip" wx:elif="{{categoryName}}">分类：{{categoryName}}</text>
-    <text class="search-tip-count" wx:if="{{!loading && products.length}}">{{totalCount || products.length}} 件</text>
+    <view class="hero-title" wx:else>馆内找好物</view>
+    <view class="hero-desc" wx:if="{{!loading && products.length}}">共找到 {{totalCount || products.length}} 份好物</view>
   </view>
 
   <scroll-view class="sort-scroll" scroll-x enable-flex show-scrollbar="{{false}}" wx:if="{{products.length}}">
@@ -32,13 +24,12 @@
 
   <view class="loading-wrap" wx:if="{{loading}}">
     <view class="loading-spinner"></view>
-    <view class="loading-text">搜索中</view>
+    <view class="loading-text">正在馆里帮你找</view>
   </view>
 
   <view class="result-list" wx:elif="{{products.length}}">
     <view class="result-header">
-      <text class="result-title">相关商品</text>
-      <text class="result-subtitle">按相关度与热度综合排序</text>
+      <text class="result-title">找到这些值得带走</text>
     </view>
     <view class="result-grid">
       <view class="result-item-wrap" wx:for="{{products}}" wx:key="id">
@@ -46,7 +37,9 @@
           product="{{item}}"
           className="search-result-product"
           showSales="{{true}}"
-          bind:click="goToDetail"
+          bind:cardtap="goToDetail"
+          data-id="{{item.id}}"
+          data-rec-token="{{item.recommendationToken}}"
         ></product-card>
       </view>
     </view>
@@ -57,22 +50,17 @@
       <view class="empty-icon-wrap">
         <view class="empty-search-icon"></view>
       </view>
-      <view class="empty-title">未找到相关商品</view>
-      <view class="empty-desc" wx:if="{{keyword}}">没有找到和 “{{keyword}}” 相关的商品</view>
-      <view class="empty-desc" wx:elif="{{categoryName}}">暂无商品</view>
-      <view class="empty-desc" wx:elif="{{categoryId}}">暂无商品</view>
-      <view class="empty-desc" wx:else>换个关键词再试试吧</view>
-      <view class="empty-tips">
-        <view class="tip-item">1. 检查输入的关键词是否有误</view>
-        <view class="tip-item">2. 尝试使用更短或更通用的搜索词</view>
-        <view class="tip-item">3. 换个分类</view>
-      </view>
+      <view class="empty-title">暂时没翻到合适的</view>
+      <view class="empty-desc" wx:if="{{keyword}}">{{keyword}}</view>
+      <view class="empty-desc" wx:elif="{{categoryName}}">{{categoryName}}</view>
+      <view class="empty-desc" wx:elif="{{categoryId}}">换个分类再试试</view>
+      <view class="empty-desc" wx:else>不如先看看馆里正在热卖的</view>
     </view>
 
     <view class="recommend-section" wx:if="{{recommendProducts.length}}">
       <view class="recommend-header">
         <view class="recommend-line"></view>
-        <text class="recommend-title">没搜到也别急，先逛这些</text>
+        <text class="recommend-title">先看看这些馆藏热门</text>
         <view class="recommend-line"></view>
       </view>
       <view class="recommend-grid">
@@ -80,9 +68,11 @@
           <product-card
             product="{{item}}"
             className="search-result-recommend"
-            showReason="{{true}}"
+            showReason="{{false}}"
             showSales="{{true}}"
-            bind:click="goToDetail"
+            bind:cardtap="goToDetail"
+            data-id="{{item.id}}"
+            data-rec-token="{{item.recommendationToken}}"
           ></product-card>
         </view>
       </view>
@@ -90,10 +80,10 @@
   </block>
 
   <view class="load-more" wx:if="{{!loading && products.length && hasMore}}">
-    <view class="loading-text">加载更多...</view>
+    <view class="loading-text">继续往下翻</view>
   </view>
   <view class="load-more" wx:if="{{!loading && products.length && !hasMore}}">
-    <view class="no-more-text">已经展示全部结果了</view>
+    <view class="no-more-text">这次先帮你翻到这里</view>
   </view>
 
   <view style="height: 40rpx;"></view>

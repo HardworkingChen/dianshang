@@ -41,6 +41,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     private static final String PRODUCT_HOT_CACHE_VERSION_KEY = "cache:product:hot:version";
     private static final String PRODUCT_SEARCH_FACET_CACHE_KEY_PREFIX = "cache:product:search:facets:";
     private static final String PRODUCT_SEARCH_FACET_VERSION_KEY = "cache:product:search:facets:version";
+    private static final List<String> HIDDEN_PRODUCT_MARKERS = List.of("秒杀压测", "自动秒杀压测商品", "链路测试");
 
     @Autowired
     private RedisUtil redisUtil;
@@ -360,6 +361,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
                 "AND sa.publish_status = 1 " +
                 "AND sa.end_time > CURRENT_TIMESTAMP" +
                 ")");
+        applyHiddenProductFilters(wrapper);
 
         if (categoryId != null) {
             wrapper.eq(Product::getCategoryId, categoryId);
@@ -391,6 +393,22 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
             wrapper.le(Product::getPrice, maxPrice);
         }
         return wrapper;
+    }
+
+    private void applyHiddenProductFilters(LambdaQueryWrapper<Product> wrapper) {
+        if (wrapper == null) {
+            return;
+        }
+        wrapper.and(hidden -> {
+            for (String marker : HIDDEN_PRODUCT_MARKERS) {
+                if (!StringUtils.hasText(marker)) {
+                    continue;
+                }
+                hidden.notLike(Product::getName, marker)
+                        .notLike(Product::getDescription, marker)
+                        .notLike(Product::getTags, marker);
+            }
+        });
     }
 
     private List<String> splitKeywordParts(String keyword) {

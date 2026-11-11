@@ -14,6 +14,7 @@ import com.ecommerce.mapper.ProductMapper;
 import com.ecommerce.mapper.ProductReviewMapper;
 import com.ecommerce.mapper.UserBehaviorMapper;
 import com.ecommerce.service.AiService;
+import com.ecommerce.service.CustomerSupportAgentClient;
 import com.ecommerce.service.ProductService;
 import com.ecommerce.service.RecommendationService;
 import com.ecommerce.utils.RedisUtil;
@@ -39,6 +40,9 @@ import java.util.stream.Collectors;
 public class AiServiceImpl implements AiService {
 
     private static final Logger log = LoggerFactory.getLogger(AiServiceImpl.class);
+
+    @Autowired
+    private CustomerSupportAgentClient customerSupportAgentClient;
 
     private static final String REVIEW_SUMMARY_CACHE_PREFIX = "ai:review_summary:";
     private static final String PROMPT_CATEGORY_SUMMARY_CACHE_KEY = "ai:prompt:category_summary";
@@ -87,12 +91,13 @@ public class AiServiceImpl implements AiService {
     );
     private static final List<String> SCENE_KEYWORDS = Arrays.asList(
             "通勤", "办公", "学生", "上课", "宿舍", "家用", "旅行", "出差",
-            "游戏", "运动", "跑步", "健身", "送人", "自用", "儿童", "婴儿"
+            "游戏", "运动", "跑步", "健身", "送人", "送礼", "礼赠", "伴手礼", "自用", "儿童", "婴儿"
     );
     private static final List<String> FEATURE_KEYWORDS = Arrays.asList(
             "蓝牙", "无线", "有线", "降噪", "音质", "续航", "轻薄", "快充", "拍照",
             "护眼", "高刷", "大屏", "便携", "保湿", "补水", "美白", "控油", "敏感肌",
-            "高蛋白", "零食", "阅读", "书写", "收纳", "保温", "静音", "头戴", "入耳", "真无线"
+            "高蛋白", "零食", "阅读", "书写", "收纳", "保温", "静音", "头戴", "入耳", "真无线",
+            "礼盒", "礼品", "伴手礼", "特产", "文创", "非遗", "河南", "河南特色"
     );
     private static final List<String> BRAND_KEYWORDS = Arrays.asList(
             "苹果", "apple", "airpods", "华为", "小米", "oppo", "vivo", "荣耀", "一加",
@@ -139,6 +144,13 @@ public class AiServiceImpl implements AiService {
     );
     private static final List<String> GENERAL_SHOPPING_HINTS = Arrays.asList(
             "怎么买", "怎么挑", "怎么选", "区别", "差别", "适合什么", "有什么用", "值不值", "推荐理由"
+    );
+    private static final List<String> FALLBACK_MATCH_KEYWORDS = Arrays.asList(
+            "耳机", "蓝牙", "降噪", "手机", "数码", "电脑", "办公", "键盘", "鼠标",
+            "平板", "空调", "冰箱", "洗衣机", "烤箱", "咖啡", "零食", "巧克力", "图书", "文具",
+            "跑鞋", "运动", "护肤", "美妆", "口红", "面膜", "精华", "防晒", "奶粉", "纸尿裤",
+            "玩具", "积木", "保温杯", "台灯", "收纳", "窗帘", "地毯",
+            "礼盒", "礼品", "送礼", "送人", "伴手礼", "特产", "河南", "河南特色", "文创", "非遗"
     );
     private static final List<String> SALES_PRIORITY_HINTS = Arrays.asList(
             "销量", "热销", "卖得好", "销量高", "高销量", "成交高"
@@ -2303,6 +2315,13 @@ public class AiServiceImpl implements AiService {
                 || !intent.getPreferredBrands().isEmpty();
     }
 
+    private boolean hasAssistiveShoppingSignals(ShoppingIntentDTO intent) {
+        return intent != null
+                && (intent.getBudgetMin() != null
+                || intent.getBudgetMax() != null
+                || (intent.getScenes() != null && !intent.getScenes().isEmpty()));
+    }
+
     private boolean shouldInviteRefinement(ShoppingIntentDTO intent) {
         return intent.getCategoryId() != null
                 && intent.getBudgetMin() == null
@@ -2441,6 +2460,13 @@ public class AiServiceImpl implements AiService {
 
     private Map<String, Object> buildGuidedShoppingResponse(Long userId, ShoppingIntentDTO intent) {
         if (!hasEnoughShoppingSignals(intent)) {
+            if (hasAssistiveShoppingSignals(intent)) {
+                intent.setNeedClarification(true);
+                if (trimToNull(intent.getClarificationQuestion()) == null) {
+                    intent.setClarificationQuestion(buildClarificationQuestion(intent));
+                }
+                return buildShoppingFallbackResponse(intent.getRawMessage(), intent);
+            }
             intent.setNeedClarification(true);
             intent.setClarificationQuestion(buildClarificationQuestion(intent));
             return buildAssistantResult(intent.getClarificationQuestion(), Collections.emptyList(), intent);
@@ -3767,10 +3793,7 @@ public class AiServiceImpl implements AiService {
             hits += 2;
         }
 
-        for (String keyword : Arrays.asList("耳机", "蓝牙", "降噪", "手机", "数码", "电脑", "办公", "键盘", "鼠标",
-                "平板", "空调", "冰箱", "洗衣机", "烤箱", "咖啡", "零食", "巧克力", "图书", "文具",
-                "跑鞋", "运动", "护肤", "美妆", "口红", "面膜", "精华", "防晒", "奶粉", "纸尿裤",
-                "玩具", "积木", "保温杯", "台灯", "收纳", "窗帘", "地毯")) {
+        for (String keyword : FALLBACK_MATCH_KEYWORDS) {
             if (normalizedMessage.contains(keyword) && haystack.contains(keyword)) {
                 hits++;
             }
@@ -4280,7 +4303,13 @@ public class AiServiceImpl implements AiService {
         messages.add(msgOf("system", systemPrompt));
         messages.add(msgOf("user", userContent));
 
-        String summary = callChatCompletion(messages);
+        String summary;
+        try {
+            summary = callChatCompletion(messages);
+        } catch (Exception exception) {
+            log.warn("[AI] 评价摘要降级为本地摘要 productId={}: {}", productId, exception.getMessage());
+            summary = buildReviewSummaryFallback(product, reviews, avgRating, totalCount);
+        }
 
         try {
             redisUtil.set(cacheKey, summary, REVIEW_SUMMARY_CACHE_HOURS, TimeUnit.HOURS);
@@ -4343,48 +4372,238 @@ public class AiServiceImpl implements AiService {
         messages.add(msgOf("system", systemPrompt));
         messages.add(msgOf("user", "以下是商品信息：\n" + context + "\n\n用户问题：" + question));
 
-        return callChatCompletion(messages);
+        try {
+            return callChatCompletion(messages);
+        } catch (Exception exception) {
+            log.warn("[AI] 商品问答降级为本地回答 productId={}, question={}: {}", productId, question, exception.getMessage());
+            return buildProductQaFallback(product, reviews, question);
+        }
+    }
+
+    private String buildReviewSummaryFallback(Product product,
+                                              List<ProductReview> reviews,
+                                              BigDecimal avgRating,
+                                              int totalCount) {
+        long positiveCount = reviews.stream()
+                .filter(review -> review != null && review.getRating() != null && review.getRating() >= 4)
+                .count();
+        long negativeCount = reviews.stream()
+                .filter(review -> review != null && review.getRating() != null && review.getRating() <= 2)
+                .count();
+        String positiveHighlight = collectReviewHighlight(reviews, 4, 5);
+        String negativeHighlight = collectReviewHighlight(reviews, 1, 2);
+        String productName = firstNonEmpty(product == null ? null : product.getName(), "该商品");
+        String avgText = avgRating == null ? "暂无均分" : String.format(Locale.ROOT, "%.1f 分", avgRating.doubleValue());
+        String positiveRate = totalCount <= 0 ? "0" : String.valueOf(Math.round((positiveCount * 100D) / totalCount));
+
+        StringBuilder summary = new StringBuilder();
+        summary.append("基于").append(Math.max(totalCount, reviews.size())).append("条评价，")
+                .append(productName).append("当前平均评分为").append(avgText).append("。");
+        summary.append("高分评价约占").append(positiveRate).append("%，");
+        if (positiveHighlight != null) {
+            summary.append("用户常提到“").append(positiveHighlight).append("”。");
+        } else {
+            summary.append("整体反馈更偏向体验稳定、性价比较高。");
+        }
+
+        if (negativeCount > 0) {
+            if (negativeHighlight != null) {
+                summary.append("需要留意的问题主要是“").append(negativeHighlight).append("”。");
+            } else {
+                summary.append("少量低分评价主要集中在个体体验差异或细节预期不一致。");
+            }
+        } else {
+            summary.append("当前明显负面问题不集中。");
+        }
+        return summary.toString();
+    }
+
+    private String buildProductQaFallback(Product product, List<ProductReview> reviews, String question) {
+        String normalizedQuestion = firstNonEmpty(trimToNull(question), "").toLowerCase(Locale.ROOT);
+        String productName = firstNonEmpty(product == null ? null : product.getName(), "该商品");
+        String descriptionSummary = summarizeProductDescription(product, 44);
+        String positiveHighlight = collectReviewHighlight(reviews, 4, 5);
+        String cautionHighlight = collectReviewHighlight(reviews, 1, 2);
+        String ratingText = product != null && product.getRating() != null
+                ? String.format(Locale.ROOT, "%.1f", product.getRating())
+                : null;
+        String priceText = product != null && product.getPrice() != null
+                ? String.format(Locale.ROOT, "%.2f", product.getPrice())
+                : null;
+        String salesText = product != null && product.getSalesCount() != null
+                ? String.valueOf(product.getSalesCount())
+                : null;
+
+        if (containsAny(normalizedQuestion, "价格", "多少钱", "价位", "贵吗", "便宜吗")) {
+            if (priceText != null) {
+                return String.format(Locale.ROOT,
+                        "%s当前页面价格为 ¥%s，最终金额请以结算页和活动优惠为准。",
+                        productName, priceText);
+            }
+            return "当前可见信息里没有明确价格字段，建议以商品详情页或结算页展示为准。";
+        }
+
+        if (containsAny(normalizedQuestion, "评分", "评价", "口碑", "好评", "差评")) {
+            StringBuilder reply = new StringBuilder();
+            if (ratingText != null) {
+                reply.append(productName).append("当前评分约 ").append(ratingText).append(" 分。");
+            } else {
+                reply.append(productName).append("当前页面没有完整评分汇总。");
+            }
+            if (positiveHighlight != null) {
+                reply.append("较多评价提到“").append(positiveHighlight).append("”。");
+            }
+            if (cautionHighlight != null) {
+                reply.append("少量反馈会提到“").append(cautionHighlight).append("”。");
+            }
+            return reply.toString();
+        }
+
+        if (containsAny(normalizedQuestion, "销量", "卖得", "热门", "热销", "多人买")) {
+            if (salesText != null) {
+                return String.format(Locale.ROOT,
+                        "%s当前累计销量约 %s 件，属于平台里有成交沉淀的商品；是否适合你，还建议结合价格、评价和使用场景一起看。",
+                        productName, salesText);
+            }
+            return "当前可见信息里没有完整销量字段，建议结合商品评分和最新评价一起判断。";
+        }
+
+        if (containsAny(normalizedQuestion, "值不值得", "怎么样", "推荐吗", "适合", "能买吗", "好不好")) {
+            StringBuilder reply = new StringBuilder();
+            reply.append(productName).append("从当前商品信息看，");
+            if (priceText != null) {
+                reply.append("价格约 ¥").append(priceText).append("，");
+            }
+            if (ratingText != null) {
+                reply.append("评分 ").append(ratingText).append("，");
+            }
+            if (salesText != null) {
+                reply.append("销量 ").append(salesText).append(" 件。");
+            } else {
+                reply.append("属于已上架在售商品。");
+            }
+            if (descriptionSummary != null) {
+                reply.append("已知卖点是").append(descriptionSummary).append("。");
+            }
+            if (positiveHighlight != null) {
+                reply.append("评价里常提到“").append(positiveHighlight).append("”。");
+            }
+            if (cautionHighlight != null) {
+                reply.append("如果你比较在意").append(cautionHighlight).append("，建议先咨询店铺客服确认细节。");
+            }
+            return reply.toString();
+        }
+
+        StringBuilder genericReply = new StringBuilder();
+        genericReply.append(productName).append("当前已知信息：");
+        if (priceText != null) {
+            genericReply.append("价格 ¥").append(priceText).append("；");
+        }
+        if (ratingText != null) {
+            genericReply.append("评分 ").append(ratingText).append("；");
+        }
+        if (salesText != null) {
+            genericReply.append("销量 ").append(salesText).append(" 件；");
+        }
+        if (descriptionSummary != null) {
+            genericReply.append("商品说明：").append(descriptionSummary).append("。");
+        } else if (positiveHighlight != null) {
+            genericReply.append("评价里较多提到“").append(positiveHighlight).append("”。");
+        } else {
+            genericReply.append("当前公开信息有限。");
+        }
+        genericReply.append("如果你想确认更细的参数、售后或适配问题，建议联系店铺客服核实。");
+        return genericReply.toString();
+    }
+
+    private boolean containsAny(String value, String... keywords) {
+        if (value == null || keywords == null || keywords.length == 0) {
+            return false;
+        }
+        for (String keyword : keywords) {
+            if (keyword != null && value.contains(keyword.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String collectReviewHighlight(List<ProductReview> reviews, int minRating, int maxRating) {
+        if (reviews == null || reviews.isEmpty()) {
+            return null;
+        }
+        LinkedHashSet<String> snippets = new LinkedHashSet<>();
+        for (ProductReview review : reviews) {
+            if (review == null || review.getRating() == null) {
+                continue;
+            }
+            int rating = review.getRating();
+            if (rating < minRating || rating > maxRating) {
+                continue;
+            }
+            String snippet = normalizeReviewSnippet(review.getContent(), 16);
+            if (snippet != null) {
+                snippets.add(snippet);
+            }
+            if (snippets.size() >= 2) {
+                break;
+            }
+        }
+        return snippets.isEmpty() ? null : String.join("；", snippets);
+    }
+
+    private String normalizeReviewSnippet(String content, int maxLength) {
+        String normalized = trimToNull(content);
+        if (normalized == null) {
+            return null;
+        }
+        normalized = normalized.replaceAll("[\\r\\n]+", " ")
+                .replaceAll("\\s+", " ")
+                .replaceAll("[。！!？?，,；;]+", " ")
+                .trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        if (normalized.length() <= maxLength) {
+            return normalized;
+        }
+        return normalized.substring(0, maxLength).trim();
+    }
+
+    private String summarizeProductDescription(Product product, int maxLength) {
+        if (product == null) {
+            return null;
+        }
+        StringBuilder summary = new StringBuilder();
+        if (product.getTags() != null && !product.getTags().isEmpty()) {
+            summary.append(String.join(" / ", product.getTags()));
+        }
+        String description = trimToNull(product.getDescription());
+        if (summary.length() == 0 && description != null) {
+            summary.append(description.replaceAll("[\\r\\n]+", " ").replaceAll("\\s+", " ").trim());
+        } else if (summary.length() > 0 && description != null) {
+            summary.append("；").append(description.replaceAll("[\\r\\n]+", " ").replaceAll("\\s+", " ").trim());
+        }
+        String text = trimToNull(summary.toString());
+        if (text == null) {
+            return null;
+        }
+        if (text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, maxLength).trim();
     }
 
     @Override
-    public String customerSupportReply(Long userId,
-                                       Map<String, Object> conversationContext,
-                                       List<Map<String, Object>> history,
-                                       String userMessage) {
+    public Map<String, Object> customerSupportReply(Long userId,
+                                                    Map<String, Object> conversationContext,
+                                                    List<Map<String, Object>> history,
+                                                    String userMessage) {
         String message = trimToNull(userMessage);
         if (message == null) {
             throw new BusinessException("消息不能为空");
         }
-
-        List<Map<String, String>> messages = new ArrayList<>();
-        messages.add(msgOf("system",
-                "你是电商平台的 AI 客服。"
-                        + "目标是先帮助用户定位问题并给出清晰下一步。"
-                        + "请遵守："
-                        + "1. 使用简体中文，语气专业、克制、友好；"
-                        + "2. 回答 45~100 字，最多 3 句，优先给可执行步骤；"
-                        + "3. 不编造订单状态和平台规则；"
-                        + "4. 涉及退款/赔付/投诉争议时明确提示可转人工客服；"
-                        + "5. 如果信息不足，直接说明缺什么信息。"));
-
-        String contextSummary = buildCustomerSupportContextSummary(conversationContext);
-        if (StringUtils.hasText(contextSummary)) {
-            messages.add(msgOf("system", "会话上下文：\n" + contextSummary));
-        }
-
-        messages.addAll(sanitizeCustomerSupportHistory(history, message));
-        messages.add(msgOf("user", message));
-
-        String reply = callChatCompletion(
-                messages,
-                Math.min(maxTokens, CUSTOMER_SUPPORT_REPLY_MAX_TOKENS),
-                Math.min(0.45d, temperature)
-        );
-        String normalized = trimToNull(reply);
-        if (normalized == null) {
-            throw new BusinessException("AI 返回为空");
-        }
-        return normalized;
+        return customerSupportAgentClient.reply(conversationContext, history, message);
     }
 
     @Override
@@ -4513,6 +4732,16 @@ public class AiServiceImpl implements AiService {
             String waitMinutes = stringValue(queue.get("estimatedWaitMinutes"));
             if (position != null) {
                 lines.add("排队位置：" + position + "，预计等待：" + (waitMinutes == null ? "--" : waitMinutes) + "分钟");
+            }
+        }
+
+        Object evidenceObject = conversationContext.get("agentEvidence");
+        if (evidenceObject instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> evidence = (Map<String, Object>) evidenceObject;
+            String facts = stringValue(evidence.get("facts"));
+            if (facts != null) {
+                lines.add("只读业务工具核验结果（可信事实；不得推断其外的信息）：" + facts);
             }
         }
 

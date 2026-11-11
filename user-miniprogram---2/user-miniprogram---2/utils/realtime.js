@@ -1,4 +1,4 @@
-const { getApiBaseUrl } = require('../config/env')
+const { getApiBaseUrl, detectRuntimePlatform } = require('../config/env')
 
 const FRAME_END = '\u0000'
 const HEARTBEAT_MS = 10000
@@ -17,6 +17,14 @@ let connectTimeoutTimer = null
 let subscriptionSeed = 0
 
 const subscriptions = new Map()
+
+function isDevtoolsRuntime() {
+  try {
+    return detectRuntimePlatform() === 'devtools'
+  } catch (error) {
+    return false
+  }
+}
 
 function getToken() {
   try {
@@ -150,7 +158,7 @@ function clearConnectionState() {
 
 function scheduleReconnect() {
   clearReconnectTimer()
-  if (!shouldReconnect || !getToken()) {
+  if (!shouldReconnect || !getToken() || isDevtoolsRuntime()) {
     return
   }
   reconnectTimer = setTimeout(() => {
@@ -299,6 +307,9 @@ function bindSocketEvents(token) {
 function connectRealtime() {
   shouldReconnect = true
   if (stompConnected || connecting || socketTask) {
+    return
+  }
+  if (isDevtoolsRuntime()) {
     return
   }
   if (typeof wx !== 'object' || typeof wx.connectSocket !== 'function') {

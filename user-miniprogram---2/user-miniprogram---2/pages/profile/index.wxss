@@ -575,6 +575,478 @@
   letter-spacing: 0;
 }
 
+/* Final visual contract: profile cards and type rhythm */
+.profile-page {
+  background: #f6f7fb !important;
+}
+
+.profile-content {
+  padding: 104rpx 16rpx 0 !important;
+}
+
+.profile-hero,
+.wallet-card,
+.section,
+.service-list,
+.order-nav {
+  border-radius: 20rpx !important;
+  border: 1rpx solid rgba(17, 17, 17, 0.06) !important;
+  background: rgba(255, 255, 255, 0.98) !important;
+  box-shadow: none !important;
+}
+
+.profile-hero,
+.wallet-card,
+.section {
+  margin: 0 0 12rpx !important;
+}
+
+.profile-hero {
+  padding: 18rpx 16rpx !important;
+}
+
+.avatar,
+.avatar-placeholder {
+  width: 88rpx !important;
+  height: 88rpx !important;
+  border-radius: 44rpx !important;
+}
+
+.user-detail {
+  margin-left: 14rpx !important;
+}
+
+.nickname {
+  font-size: 28rpx !important;
+  line-height: 1.28 !important;
+  margin-bottom: 4rpx !important;
+}
+
+.hero-alerts {
+  margin-top: 14rpx !important;
+  gap: 8rpx !important;
+}
+
+.hero-alert-item {
+  min-height: 88rpx !important;
+  padding: 12rpx 8rpx !important;
+  border-radius: 14rpx !important;
+}
+
+.hero-alert-label {
+  font-size: 16rpx !important;
+}
+
+.hero-alert-value {
+  font-size: 24rpx !important;
+}
+
+.wallet-card {
+  padding: 18rpx 16rpx !important;
+}
+
+.wallet-label {
+  font-size: 20rpx !important;
+}
+
+.wallet-balance {
+  font-size: 34rpx !important;
+  margin-top: 6rpx !important;
+}
+
+.wallet-btn {
+  width: 124rpx !important;
+  height: 56rpx !important;
+  line-height: 56rpx !important;
+  font-size: 20rpx !important;
+}
+
+.wallet-stats {
+  margin-top: 14rpx !important;
+  gap: 8rpx !important;
+}
+
+.wallet-stat {
+  padding: 12rpx 8rpx !important;
+  border-radius: 14rpx !important;
+  background: #f5f6f8 !important;
+}
+
+.wallet-stat-value {
+  font-size: 28rpx !important;
+}
+
+.wallet-stat-label {
+  font-size: 18rpx !important;
+}
+
+.section {
+  padding: 18rpx 16rpx !important;
+}
+
+.section-header {
+  padding: 0 0 10rpx !important;
+  margin-bottom: 0 !important;
+  border: 0 !important;
+}
+
+.section-title {
+  font-size: 26rpx !important;
+  line-height: 1.34 !important;
+}
+
+.section-more text {
+  font-size: 18rpx !important;
+}
+
+.order-nav {
+  padding: 14rpx 10rpx !important;
+  gap: 8rpx !important;
+}
+
+.order-item {
+  min-height: 98rpx !important;
+  padding: 14rpx 6rpx !important;
+  border-radius: 14rpx !important;
+}
+
+.order-icon {
+  width: 34rpx !important;
+  height: 34rpx !important;
+}
+
+.order-text {
+  font-size: 18rpx !important;
+}
+
+.service-list {
+  padding: 4rpx 12rpx !important;
+}
+
+.service-item {
+  min-height: 82rpx !important;
+  padding: 14rpx 2rpx !important;
+}
+
+.service-icon {
+  width: 36rpx !important;
+  height: 36rpx !important;
+  border-radius: 10rpx !important;
+  background-size: 22rpx 22rpx !important;
+}
+
+.service-name {
+  font-size: 23rpx !important;
+}
+
+/* Production-like profile final pass */
+.profile-page {
+  background: #f6f7fb !important;
+}
+
+.profile-content {
+  padding: 104rpx 16rpx 0 !important;
+}
+
+.profile-hero,
+.wallet-card,
+.section {
+  margin: 0 0 14rpx !important;
+  border-radius: 20rpx !important;
+  background: #ffffff !important;
+  border: 1rpx solid rgba(17, 17, 17, 0.06) !important;
+  box-shadow: none !important;
+}
+
+.profile-hero {
+  padding: 20rpx 18rpx !important;
+}
+
+.hero-top {
+  align-items: center;
+}
+
+.avatar-wrap {
+  margin-right: 16rpx !important;
+}
+
+.avatar,
+.avatar-placeholder {
+  width: 92rpx !important;
+  height: 92rpx !important;
+  border-radius: 46rpx !important;
+}
+
+.avatar {
+  border: 2rpx solid rgba(17, 17, 17, 0.04);
+}
+
+.avatar-placeholder {
+  background: #f3f5f8;
+  border: 0;
+}
+
+.avatar-icon {
+  width: 42rpx;
+  height: 42rpx;
+}
+
+.user-detail {
+  flex: 1;
+  min-width: 0;
+}
+
+.nickname {
+  margin-bottom: 6rpx !important;
+  font-size: 30rpx !important;
+  font-weight: 740;
+  color: #111111 !important;
+}
+
+.user-tip {
+  margin-top: 0 !important;
+  font-size: 20rpx !important;
+  line-height: 1.45 !important;
+  color: #8a93a3 !important;
+}
+
+.hero-arrow {
+  width: 14rpx;
+  height: 14rpx;
+  margin-left: 12rpx;
+  border-top: 2.5rpx solid #b1b8c4;
+  border-right: 2.5rpx solid #b1b8c4;
+  transform: rotate(45deg);
+}
+
+.hero-alerts {
+  margin-top: 18rpx !important;
+  gap: 10rpx !important;
+}
+
+.hero-alert-item {
+  padding: 14rpx 8rpx !important;
+  border-radius: 16rpx !important;
+  background: #f5f6f8 !important;
+  border: 0 !important;
+}
+
+.hero-alert-item.has-alert {
+  background: #eef5ff !important;
+}
+
+.hero-alert-label {
+  font-size: 18rpx !important;
+  color: #8a93a3 !important;
+}
+
+.hero-alert-value {
+  margin-top: 6rpx !important;
+  font-size: 28rpx !important;
+  color: #111111 !important;
+}
+
+.wallet-card {
+  padding: 18rpx !important;
+}
+
+.wallet-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.wallet-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.wallet-label {
+  font-size: 20rpx !important;
+  color: #8a93a3 !important;
+}
+
+.wallet-balance {
+  margin-top: 8rpx !important;
+  font-size: 40rpx !important;
+  line-height: 1.1;
+  font-weight: 780;
+  color: #111111 !important;
+}
+
+.wallet-btn {
+  min-width: 124rpx;
+  height: 58rpx;
+  padding: 0 22rpx;
+  border-radius: 999rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #111111 !important;
+  color: #ffffff;
+  font-size: 22rpx !important;
+  font-weight: 700;
+  box-shadow: none !important;
+}
+
+.wallet-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10rpx;
+  margin-top: 18rpx;
+}
+
+.wallet-stat {
+  min-width: 0;
+  padding: 16rpx 12rpx;
+  border-radius: 16rpx;
+  background: #f5f6f8;
+  text-align: center;
+}
+
+.wallet-stat-value {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 720;
+  color: #111111;
+}
+
+.wallet-stat-label {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 18rpx;
+  color: #8a93a3;
+}
+
+.section {
+  padding: 18rpx !important;
+}
+
+.section-header {
+  padding: 0 !important;
+  margin-bottom: 14rpx !important;
+}
+
+.section-title {
+  font-size: 28rpx !important;
+  font-weight: 740;
+  color: #111111 !important;
+}
+
+.section-more {
+  gap: 8rpx;
+  font-size: 20rpx !important;
+  color: #8a93a3 !important;
+}
+
+.arrow-right {
+  width: 12rpx !important;
+  height: 12rpx !important;
+  margin-left: 0 !important;
+  border-top-width: 2rpx !important;
+  border-right-width: 2rpx !important;
+}
+
+.order-nav {
+  margin-top: 0 !important;
+  padding: 0 !important;
+  gap: 10rpx !important;
+}
+
+.order-item {
+  padding: 16rpx 8rpx !important;
+  border-radius: 16rpx !important;
+  background: #f5f6f8 !important;
+}
+
+.order-item.has-badge {
+  background: #eef5ff !important;
+}
+
+.order-icon {
+  width: 34rpx !important;
+  height: 34rpx !important;
+}
+
+.order-text {
+  margin-top: 10rpx;
+  font-size: 20rpx;
+  color: #5f6675;
+}
+
+.order-item .badge {
+  position: absolute;
+  top: 8rpx;
+  right: 8rpx;
+  min-width: 30rpx;
+  height: 30rpx;
+  padding: 0 8rpx;
+  font-size: 17rpx;
+  line-height: 30rpx;
+}
+
+.service-list {
+  padding: 0 !important;
+  border-top: 0 !important;
+}
+
+.service-item {
+  min-height: 84rpx;
+  padding: 18rpx 0 !important;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1rpx solid rgba(17, 17, 17, 0.06);
+}
+
+.service-item:last-child {
+  border-bottom: 0;
+}
+
+.service-left {
+  display: flex;
+  align-items: center;
+  gap: 14rpx !important;
+  min-width: 0;
+}
+
+.service-icon {
+  width: 40rpx !important;
+  height: 40rpx !important;
+  border-radius: 12rpx !important;
+  background-color: #f3f5f8 !important;
+  border: 0 !important;
+  background-size: 24rpx 24rpx !important;
+}
+
+.service-name {
+  font-size: 24rpx !important;
+  color: #111111;
+}
+
+.service-right-info {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.service-badge {
+  font-size: 18rpx !important;
+  color: #8a93a3 !important;
+}
+
+.service-dot {
+  width: 10rpx !important;
+  height: 10rpx !important;
+  background: #ff3b30 !important;
+  border-radius: 50%;
+}
+
+.service-count-badge {
+  font-size: 17rpx !important;
+}
+
 /* Readability upgrade: keep iOS-clean layout while restoring comfortable tap/scan size */
 .profile-content {
   padding: 110rpx 18rpx 0 !important;

@@ -1,4 +1,4 @@
-<view class="custom-popup {{show ? 'custom-popup-show' : ''}}" style="z-index: {{zIndex}};">
+<view wx:if="{{show}}" class="custom-popup custom-popup-show" style="z-index: {{zIndex}};">
   <view class="custom-popup-mask" bindtap="onClickMask"></view>
   <view class="custom-popup-content custom-popup-{{position}} {{round ? 'custom-popup-round' : ''}}" style="{{customStyle}}">
     <view class="custom-popup-close" wx:if="{{closeable}}" bindtap="onClose">

@@ -1,5 +1,10 @@
 const app = getApp()
 const request = require('../../utils/request')
+const {
+  normalizeImageUrl: normalizeSharedImageUrl,
+  resolveActivityImage: resolveSharedActivityImage,
+  resolveProductImage: resolveSharedProductImage,
+} = require('../../utils/image')
 
 const SECKILL_COUNTDOWN_WINDOW_MS = 12 * 60 * 60 * 1000
 const SECKILL_PAGE_LIMIT = 60
@@ -437,27 +442,11 @@ Page({
   },
 
   resolveActivityImage(rawGroup = {}) {
-    return this.pickFirstImage([
-      rawGroup.activityCoverImage,
-      rawGroup.coverImage,
-      rawGroup.activityImage,
-      rawGroup.image,
-    ])
+    return resolveSharedActivityImage(rawGroup)
   },
 
   resolveProductImage(rawItem = {}) {
-    return this.pickFirstImage([
-      rawItem.productImage,
-      rawItem.mainImage,
-      rawItem.image,
-      rawItem.thumbnail,
-      rawItem.thumb,
-      rawItem.imageUrl,
-      Array.isArray(rawItem.images) ? rawItem.images[0] : rawItem.images,
-      rawItem.product && rawItem.product.image,
-      rawItem.product && rawItem.product.mainImage,
-      rawItem.product && Array.isArray(rawItem.product.images) ? rawItem.product.images[0] : (rawItem.product ? rawItem.product.images : ''),
-    ])
+    return resolveSharedProductImage(rawItem)
   },
 
   pickFirstImage(candidates = []) {
@@ -471,46 +460,7 @@ Page({
   },
 
   normalizeImageUrl(value) {
-    if (!value) {
-      return ''
-    }
-
-    if (Array.isArray(value)) {
-      return this.pickFirstImage(value)
-    }
-
-    let next = value
-    if (typeof value === 'string') {
-      const trimmed = value.trim()
-      if (!trimmed) {
-        return ''
-      }
-
-      if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
-        try {
-          next = JSON.parse(trimmed)
-        } catch (error) {
-          next = trimmed
-        }
-      } else {
-        next = trimmed
-      }
-    }
-
-    if (Array.isArray(next)) {
-      return this.pickFirstImage(next)
-    }
-
-    const text = String(next || '').trim()
-    if (!text) {
-      return ''
-    }
-
-    if (/^https?:\/\//i.test(text) || text.startsWith('/')) {
-      return text
-    }
-
-    return ''
+    return normalizeSharedImageUrl(value)
   },
 
   buildAnchorId(prefix, rawValue) {
@@ -654,7 +604,7 @@ Page({
     if (!this.needCountdownRefresh()) {
       return
     }
-    this._seckillTicker = setInterval(() => {
+    const tick = () => {
       if (this.isPageInactive()) {
         this.clearSeckillTicker()
         return
@@ -662,8 +612,11 @@ Page({
       this.refreshDisplayGroups()
       if (!this.needCountdownRefresh()) {
         this.clearSeckillTicker()
+        return
       }
-    }, 1000)
+      this._seckillTicker = setTimeout(tick, 1000)
+    }
+    this._seckillTicker = setTimeout(tick, 1000)
   },
 
   needCountdownRefresh() {
@@ -676,7 +629,7 @@ Page({
 
   clearSeckillTicker() {
     if (this._seckillTicker) {
-      clearInterval(this._seckillTicker)
+      clearTimeout(this._seckillTicker)
       this._seckillTicker = null
     }
   },

@@ -309,10 +309,7 @@ function injectCompactAdminStyle() {
     .copy-compact .decision-subline,
     .copy-compact .helper-text,
     .copy-compact .dialog-tip__desc,
-    .copy-compact .defense-rail-list__text,
-    .copy-compact .recommend-defense-row p,
     .copy-compact .recommend-formula-card p,
-    .copy-compact .defense-surface__text,
     .copy-compact .behavior-overview-facts__text,
     .copy-compact .sales-overview-points__text,
     .copy-compact .ab-test-status-card__desc,
@@ -351,15 +348,13 @@ function injectCompactAdminStyle() {
     }
 
     .copy-compact .panel-card,
-    .copy-compact .defense-surface,
     .copy-compact .tech-panel {
       border-radius: 18px !important;
     }
 
     .copy-compact .el-card__body,
     .copy-compact .panel-card,
-    .copy-compact .section-shell,
-    .copy-compact .defense-surface {
+    .copy-compact .section-shell {
       padding-top: 14px;
       padding-bottom: 14px;
     }

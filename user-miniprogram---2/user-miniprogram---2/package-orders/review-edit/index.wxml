@@ -3,9 +3,7 @@
 
   <scroll-view class="review-scroll" scroll-y>
     <view class="hero-block">
-      <text class="hero-kicker">评价中心</text>
-      <text class="hero-title">把真实体验告诉后来的人</text>
-      <text class="hero-desc">评分、图片和一句判断就够了，重点是让下一位买家能快速看懂。</text>
+      <text class="hero-title">发表评价</text>
     </view>
 
     <view class="product-card" wx:if="{{productName}}">
@@ -22,7 +20,6 @@
 
     <view class="disabled-state" wx:if="{{!loading && !canReview}}">
       <text class="disabled-title">已评价</text>
-      <text class="disabled-desc">可回订单查看</text>
     </view>
 
     <block wx:elif="{{!loading}}">
@@ -40,9 +37,6 @@
             bindtap="selectRating"
           >★</view>
         </view>
-        <view class="rating-copy">
-          <text>{{rating >= 5 ? '很满意，值得推荐' : (rating >= 4 ? '整体不错，有亮点' : (rating >= 3 ? '中规中矩，基本符合预期' : '有明显问题，需要提醒后面买家'))}}</text>
-        </view>
       </view>
 
       <view class="panel">
@@ -53,7 +47,7 @@
         <textarea
           class="review-input"
           maxlength="300"
-          placeholder="说说商品质量、做工、包装、物流或者是否值得买"
+          placeholder="输入评价"
           value="{{content}}"
           bindinput="onContentInput"
         ></textarea>
@@ -62,7 +56,6 @@
       <view class="panel">
         <view class="panel-head">
           <text class="panel-title">印象标签</text>
-          <text class="panel-meta">最多 3 个</text>
         </view>
         <view class="tag-grid">
           <view

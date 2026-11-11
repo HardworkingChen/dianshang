@@ -13,12 +13,7 @@
   <view class="hero-stage">
     <view class="hero-overlay"></view>
     <view class="hero-card">
-      <text class="hero-eyebrow">秒杀会场</text>
-      <text class="hero-title">限时秒杀会场</text>
-      <view class="hero-meta-row">
-        <view class="hero-meta-chip">实时倒计时</view>
-        <view class="hero-meta-chip">场次导航</view>
-      </view>
+      <text class="hero-title">秒杀会场</text>
     </view>
   </view>
 
@@ -84,7 +79,6 @@
 
     <view class="empty-wrap" wx:elif="{{!displayGroups.length}}">
       <view class="empty-title">{{seckillEmptyTitle}}</view>
-      <view class="empty-desc">{{seckillEmptyDesc}}</view>
     </view>
 
     <view class="group-list" wx:else>
@@ -105,12 +99,10 @@
               <text class="group-cover-placeholder-text">会场图</text>
             </view>
             <view class="group-info">
-              <text class="group-kicker">场次商品</text>
               <view class="group-title-row">
                 <text class="group-status-badge {{group.runtimeStatus === 1 ? 'active' : (group.runtimeStatus === 0 ? 'upcoming' : 'history')}}">{{group.statusLabel}}</text>
                 <text class="group-title">{{group.activityName}}</text>
               </view>
-              <view class="group-desc" wx:if="{{group.activityDescription}}">{{group.activityDescription}}</view>
               <view class="group-time">{{group.timeText}}</view>
               <view class="group-meta">
                 <text class="group-countdown">{{group.countdownText}}</text>

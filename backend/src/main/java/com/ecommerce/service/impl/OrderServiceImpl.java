@@ -501,7 +501,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         Order eventOrder = paidOrder != null ? paidOrder : order;
         eventOrder.setStatus(Constants.OrderStatus.PAID);
         orderMessageHelper.notifyOrderPaid(eventOrder, totalAmount);
-        recordPurchaseBehaviorAsync(eventOrder.getId(), userId);
+        if (!mqEventPublisher.isEnabled()) {
+            recordPurchaseBehaviorAsync(eventOrder.getId(), userId);
+        }
 
         log.info("[订单支付] 订单号={}, 用户={}, 金额={}", order.getOrderNo(), userId, totalAmount);
     }

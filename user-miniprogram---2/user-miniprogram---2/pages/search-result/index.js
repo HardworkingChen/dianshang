@@ -3,6 +3,7 @@ const request = require('../../utils/request')
 const { resolveProductImage } = require('../../utils/image')
 const { buildProductShareMessage } = require('../../utils/share')
 const recommendationTracker = require('../../utils/recommendation-tracker')
+const { filterOutSeckillProducts } = require('../../utils/seckill-filter')
 const CACHE_TTL = {
   LIST: 2 * 60 * 1000,
   RECOMMEND: 2 * 60 * 1000
@@ -88,7 +89,7 @@ Page({
         forceRefresh: !!options.forceRefresh
       })
 
-      const list = ((res && res.records) || []).map((item) => {
+      const list = filterOutSeckillProducts((res && res.records) || []).map((item) => {
         const id = item.id
         const scene = this.data.keyword ? 'search_keyword' : 'search_category'
         return {
@@ -143,7 +144,7 @@ Page({
         cacheByUser: isPersonalized,
         forceRefresh: !!options.forceRefresh
       })
-      const list = (Array.isArray(res) ? res : []).map((item) => ({
+      const list = filterOutSeckillProducts(Array.isArray(res) ? res : []).map((item) => ({
         id: item.id,
         title: item.name || '',
         image: resolveProductImage(item),

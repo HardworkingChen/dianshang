@@ -13,12 +13,18 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 @Service
 public class StreamRealtimeProjectionService {
@@ -26,6 +32,7 @@ public class StreamRealtimeProjectionService {
     private static final Logger log = LoggerFactory.getLogger(StreamRealtimeProjectionService.class);
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final String HOT_KEY_PREFIX = "stream:product:hot:";
+    private static final String HOT_EVENT_KEY_PREFIX = "stream:product:hot:event:";
     private static final String HOT_LAST_UPDATE_KEY = "stream:product:hot:lastUpdate";
     private static final String KPI_KEY_PREFIX = "stream:recommendation:kpi:date:";
     private static final String KPI_LATEST_KEY = "stream:recommendation:kpi:latest";
@@ -49,7 +56,7 @@ public class StreamRealtimeProjectionService {
         double weight = eventWeight(normalizedEventType, eventDTO.getDuration());
         String behaviorType = toRealtimeBehaviorType(normalizedEventType);
         project(userId, productId, behaviorType, eventTime, weight, isPurchaseEvent(normalizedEventType));
-        incrementRecommendationKpi(userId, normalizedEventType, eventTime);
+        incrementRecommendationKpi(userId, normalizedEventType, eventTime, eventDTO.getAmount());
     }
 
     public void projectBehavior(UserBehavior behavior) {
@@ -91,7 +98,7 @@ public class StreamRealtimeProjectionService {
             upsertCategoryPreference(userId, product, scoreDelta, eventTime);
             upsertProductHotness(product, scoreDelta, purchaseEvent, eventTime);
             incrementRedisCategory(userId, product.categoryName, scoreDelta);
-            incrementRedisHotness(product.productId, scoreDelta);
+            incrementRedisHotness(product.productId, scoreDelta, eventTime);
         } catch (Exception exception) {
             log.warn("[StreamRealtimeProjection] projection failed userId={} productId={} behaviorType={}: {}",
                     userId, productId, behaviorType, exception.getMessage());
@@ -161,19 +168,110 @@ public class StreamRealtimeProjectionService {
         stringRedisTemplate.opsForHash().increment(key, categoryName, scoreDelta);
     }
 
-    private void incrementRedisHotness(Long productId, double scoreDelta) {
+    private void incrementRedisHotness(Long productId, double scoreDelta, LocalDateTime eventTime) {
         if (stringRedisTemplate == null || productId == null || productId <= 0) {
             return;
         }
-        double safeDelta = Math.max(0.01D, scoreDelta);
+        double safeDelta = normalizeHotScoreDelta(scoreDelta);
+        long eventTimestamp = toEpochMilli(eventTime == null ? LocalDateTime.now() : eventTime);
         for (String window : new String[]{"1m", "1h", "1d"}) {
-            stringRedisTemplate.opsForZSet().incrementScore(HOT_KEY_PREFIX + window, String.valueOf(productId), safeDelta);
+            pruneExpiredHotEvents(window, eventTimestamp);
+            String aggregateKey = HOT_KEY_PREFIX + window;
+            String eventKey = HOT_EVENT_KEY_PREFIX + window;
+            stringRedisTemplate.opsForZSet().add(
+                    eventKey,
+                    buildHotEventMember(productId, safeDelta),
+                    eventTimestamp
+            );
+            Double nextScore = stringRedisTemplate.opsForZSet()
+                    .incrementScore(aggregateKey, String.valueOf(productId), safeDelta);
+            if (nextScore != null && nextScore <= 0D) {
+                stringRedisTemplate.opsForZSet().remove(aggregateKey, String.valueOf(productId));
+            }
             stringRedisTemplate.opsForValue().set(HOT_LAST_UPDATE_KEY + ":" + window, nowText());
         }
         stringRedisTemplate.opsForValue().set(HOT_LAST_UPDATE_KEY, nowText());
     }
 
-    private void incrementRecommendationKpi(Long userId, String eventType, LocalDateTime eventTime) {
+    private void pruneExpiredHotEvents(String window, long referenceTimestamp) {
+        if (stringRedisTemplate == null) {
+            return;
+        }
+        long windowMillis = resolveWindowMillis(window);
+        long expireBefore = referenceTimestamp - windowMillis;
+        if (expireBefore <= 0) {
+            return;
+        }
+
+        String eventKey = HOT_EVENT_KEY_PREFIX + window;
+        String aggregateKey = HOT_KEY_PREFIX + window;
+        Set<String> expiredMembers = stringRedisTemplate.opsForZSet().rangeByScore(eventKey, 0, expireBefore - 1);
+        if (expiredMembers == null || expiredMembers.isEmpty()) {
+            return;
+        }
+
+        for (String member : expiredMembers) {
+            HotEventEntry entry = parseHotEventMember(member);
+            if (entry == null || entry.productId == null || entry.productId <= 0) {
+                continue;
+            }
+            Double nextScore = stringRedisTemplate.opsForZSet()
+                    .incrementScore(aggregateKey, String.valueOf(entry.productId), -entry.scoreDelta);
+            if (nextScore != null && nextScore <= 0D) {
+                stringRedisTemplate.opsForZSet().remove(aggregateKey, String.valueOf(entry.productId));
+            }
+        }
+        stringRedisTemplate.opsForZSet().removeRangeByScore(eventKey, 0, expireBefore - 1);
+    }
+
+    private String buildHotEventMember(Long productId, double scoreDelta) {
+        return productId + "|" + scoreDelta + "|" + UUID.randomUUID();
+    }
+
+    private HotEventEntry parseHotEventMember(String member) {
+        if (!StringUtils.hasText(member)) {
+            return null;
+        }
+        String[] parts = member.split("\\|", 3);
+        if (parts.length < 2) {
+            return null;
+        }
+        try {
+            return new HotEventEntry(Long.parseLong(parts[0]), Double.parseDouble(parts[1]));
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private double normalizeHotScoreDelta(double scoreDelta) {
+        if (scoreDelta > 0D) {
+            return Math.max(0.01D, scoreDelta);
+        }
+        if (scoreDelta < 0D) {
+            return Math.min(-0.01D, scoreDelta);
+        }
+        return 0.01D;
+    }
+
+    private long resolveWindowMillis(String window) {
+        String normalized = normalizeText(window);
+        if ("1m".equals(normalized)) {
+            return Duration.ofMinutes(1).toMillis();
+        }
+        if ("1d".equals(normalized)) {
+            return Duration.ofDays(1).toMillis();
+        }
+        return Duration.ofHours(1).toMillis();
+    }
+
+    private long toEpochMilli(LocalDateTime eventTime) {
+        return eventTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+    }
+
+    private void incrementRecommendationKpi(Long userId,
+                                            String eventType,
+                                            LocalDateTime eventTime,
+                                            BigDecimal amount) {
         if (stringRedisTemplate == null || !StringUtils.hasText(eventType)) {
             return;
         }
@@ -194,8 +292,14 @@ public class StreamRealtimeProjectionService {
                 if (userId != null && userId > 0) {
                     stringRedisTemplate.opsForHash().increment(key, "orderUserCount", 1L);
                 }
+                if (amount != null && amount.compareTo(BigDecimal.ZERO) > 0) {
+                    stringRedisTemplate.opsForHash().increment(key, "gmv", amount.doubleValue());
+                }
             } else if (Constants.RecommendationEventType.REFUND.equals(eventType)) {
                 stringRedisTemplate.opsForHash().increment(key, "refundCount", 1L);
+                if (amount != null && amount.compareTo(BigDecimal.ZERO) > 0) {
+                    stringRedisTemplate.opsForHash().increment(key, "refundAmount", amount.doubleValue());
+                }
             }
         }
         stringRedisTemplate.opsForValue().set(KPI_LAST_UPDATE_KEY, nowText());
@@ -302,6 +406,16 @@ public class StreamRealtimeProjectionService {
             this.productId = productId;
             this.categoryId = categoryId;
             this.categoryName = categoryName;
+        }
+    }
+
+    private static class HotEventEntry {
+        private final Long productId;
+        private final double scoreDelta;
+
+        private HotEventEntry(Long productId, double scoreDelta) {
+            this.productId = productId;
+            this.scoreDelta = scoreDelta;
         }
     }
 }

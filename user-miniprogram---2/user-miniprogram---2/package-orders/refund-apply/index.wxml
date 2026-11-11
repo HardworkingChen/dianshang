@@ -73,19 +73,12 @@
         <view class="service-head">
           <view>
             <view class="service-title">售后协商</view>
-            <view class="service-desc">先和商家沟通，协商不成可找平台介入。</view>
           </view>
         </view>
         <view class="service-actions">
           <view class="service-action active-opacity" bindtap="openMerchantService">联系商家</view>
           <view class="service-action service-action--dark active-opacity" bindtap="openOfficialService">官方客服</view>
         </view>
-      </view>
-
-      <view class="tips-card">
-        <view class="tips-title">温馨提示</view>
-        <view class="tips-text">退款申请提交后，可在“我的订单 - 售后”中查看处理进度。</view>
-        <view class="tips-text">审核通过后原路退回。</view>
       </view>
 
       <view class="bottom-space"></view>

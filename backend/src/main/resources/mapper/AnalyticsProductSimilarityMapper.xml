@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ecommerce.mapper.AnalyticsProductSimilarityMapper">
+
+    <select id="selectLatestSnapshotDate" resultType="java.time.LocalDate">
+        SELECT snapshot_date
+        FROM analytics_product_similarity
+        WHERE product_id = #{productId}
+        ORDER BY snapshot_date DESC
+        LIMIT 1
+    </select>
+
+    <select id="selectSnapshotRows" resultType="com.ecommerce.entity.AnalyticsProductSimilarity">
+        SELECT *
+        FROM analytics_product_similarity
+        WHERE product_id = #{productId}
+          AND snapshot_date = #{snapshotDate}
+        ORDER BY rank_no ASC, similarity DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

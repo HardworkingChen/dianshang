@@ -178,7 +178,7 @@ Page({
       count: remain,
       mediaType: ['image'],
       sourceType: ['album', 'camera'],
-      sizeType: ['compressed'],
+      sizeType: ['original'],
       success: async (res) => {
         const tempFiles = Array.isArray(res.tempFiles) ? res.tempFiles : []
         if (!tempFiles.length) {

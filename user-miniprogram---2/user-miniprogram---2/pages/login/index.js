@@ -76,7 +76,7 @@ Page({
 
   clearSmsTimer() {
     if (this._smsTimer) {
-      clearInterval(this._smsTimer)
+      clearTimeout(this._smsTimer)
       this._smsTimer = null
     }
   },
@@ -164,7 +164,7 @@ Page({
 
       this.clearSmsTimer()
       this.safeSetData({ smsCountdown: 60 })
-      this._smsTimer = setInterval(() => {
+      const tick = () => {
         if (this.isPageInactive()) {
           this.clearSmsTimer()
           return
@@ -172,9 +172,13 @@ Page({
         const cd = this.data.smsCountdown - 1
         if (cd <= 0) {
           this.clearSmsTimer()
+          this.safeSetData({ smsCountdown: 0 })
+          return
         }
         this.safeSetData({ smsCountdown: Math.max(cd, 0) })
-      }, 1000)
+        this._smsTimer = setTimeout(tick, 1000)
+      }
+      this._smsTimer = setTimeout(tick, 1000)
     } catch (err) {
       console.error('发送验证码失败', err)
       wx.showToast({ title: this.getErrorMessage(err, '发送失败'), icon: 'none' })

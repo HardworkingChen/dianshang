@@ -15,6 +15,12 @@ Component({
         showBadge: false
       },
       {
+        pagePath: "/pages/ai-assistant/index",
+        text: "AI",
+        iconClass: "icon-ai-tab",
+        showBadge: false
+      },
+      {
         pagePath: "/pages/cart/index",
         text: "购物车",
         iconClass: "icon-cart",
@@ -63,24 +69,24 @@ Component({
 
     syncUnreadState(count) {
       this.setData({
-        ['list[3].showBadge']: Number(count) > 0
+        ['list[4].showBadge']: Number(count) > 0
       })
     },
 
     syncCartState(count) {
       const safeCount = Math.max(0, Number(count || 0))
       this.setData({
-        ['list[2].badgeCount']: safeCount,
-        ['list[2].badgeText']: safeCount > 99 ? '99+' : String(safeCount)
+        ['list[3].badgeCount']: safeCount,
+        ['list[3].badgeText']: safeCount > 99 ? '99+' : String(safeCount)
       })
     },
 
     syncProfileState(count) {
       const safeCount = Math.max(0, Number(count || 0))
       this.setData({
-        ['list[3].badgeCount']: safeCount,
-        ['list[3].badgeText']: safeCount > 99 ? '99+' : String(safeCount),
-        ['list[3].showBadge']: safeCount > 0
+        ['list[4].badgeCount']: safeCount,
+        ['list[4].badgeText']: safeCount > 99 ? '99+' : String(safeCount),
+        ['list[4].showBadge']: safeCount > 0
       })
     }
   }

@@ -28,6 +28,9 @@ public class AiController {
     @Value("${ai.model}")
     private String model;
 
+    @Value("${ai.api-key:}")
+    private String apiKey;
+
     @Value("${ai.max-tokens:1024}")
     private int maxTokens;
 
@@ -111,7 +114,8 @@ public class AiController {
         config.put("model", model);
         config.put("maxTokens", maxTokens);
         config.put("temperature", temperature);
-        config.put("status", "active");
+        config.put("status", isAiProviderConfigured() ? "active" : "unconfigured");
+        config.put("providerConfigured", isAiProviderConfigured());
 
         Map<String, Boolean> modules = new LinkedHashMap<>();
         modules.put("ai-chat", moduleSwitchService.isEnabled("ai-chat"));
@@ -168,5 +172,11 @@ public class AiController {
         intent.setStrategyHint(null);
         intent.setTopCategories(new java.util.ArrayList<>());
         intent.setTopTags(new java.util.ArrayList<>());
+    }
+
+    private boolean isAiProviderConfigured() {
+        return org.springframework.util.StringUtils.hasText(apiUrl)
+                && org.springframework.util.StringUtils.hasText(apiKey)
+                && org.springframework.util.StringUtils.hasText(model);
     }
 }

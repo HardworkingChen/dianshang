@@ -1,9 +1,9 @@
 {
   "pages": [
-    "pages/splash/index",
     "pages/home/index",
     "pages/seckill/index",
     "pages/explore/index",
+    "pages/ai-assistant/index",
     "pages/cart/index",
     "pages/profile/index",
     "pages/login/index",
@@ -43,7 +43,6 @@
       "root": "package-features",
       "name": "features",
       "pages": [
-        "ai-assistant/index",
         "webview/index"
       ]
     }
@@ -79,6 +78,10 @@
       {
         "pagePath": "pages/explore/index",
         "text": "探索"
+      },
+      {
+        "pagePath": "pages/ai-assistant/index",
+        "text": "AI"
       },
       {
         "pagePath": "pages/cart/index",

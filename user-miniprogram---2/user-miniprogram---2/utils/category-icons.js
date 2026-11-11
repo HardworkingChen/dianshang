@@ -1,8 +1,8 @@
 const CATEGORY_ICON_SET = [
-  { key: 'digital', iconText: '数', iconClass: 'icon-digital', names: ['手机数码', '3C数码'] },
-  { key: 'office', iconText: '办', iconClass: 'icon-office', names: ['电脑办公'] },
-  { key: 'appliance', iconText: '电', iconClass: 'icon-appliance', names: ['家用电器'] },
-  { key: 'fashion', iconText: '搭', iconClass: 'icon-fashion', names: ['服饰鞋包'] },
+  { key: 'digital', iconText: '数', iconClass: 'icon-digital', iconImage: '/assets/generated/category-digital.png', names: ['手机数码', '3C数码'] },
+  { key: 'office', iconText: '办', iconClass: 'icon-office', iconImage: '/assets/generated/category-office.png', names: ['电脑办公'] },
+  { key: 'appliance', iconText: '电', iconClass: 'icon-appliance', iconImage: '/assets/generated/category-appliance.png', names: ['家用电器'] },
+  { key: 'fashion', iconText: '搭', iconClass: 'icon-fashion', iconImage: '/assets/generated/category-fashion.png', names: ['服饰鞋包'] },
   { key: 'beauty', iconText: '美', iconClass: 'icon-beauty', names: ['美妆护肤'] },
   { key: 'food', iconText: '鲜', iconClass: 'icon-food', names: ['食品生鲜'] },
   { key: 'book', iconText: '书', iconClass: 'icon-book', names: ['图书文具'] },
@@ -27,6 +27,7 @@ const DEFAULT_CATEGORY_META = {
   iconText: '类',
   iconClass: 'icon-default',
   iconKey: 'default',
+  iconImage: '',
 }
 
 function normalizeCategoryName(name) {
@@ -38,6 +39,7 @@ const CATEGORY_ICON_META = CATEGORY_ICON_SET.reduce((result, item) => {
     iconText: item.iconText,
     iconClass: item.iconClass,
     iconKey: item.key,
+    iconImage: item.iconImage || '',
   }
 
   ;(item.names || []).forEach((name) => {
@@ -59,6 +61,7 @@ function getCategoryMeta(name) {
     iconText: normalized.slice(0, 1),
     iconClass: 'icon-default',
     iconKey: 'default',
+    iconImage: '',
   }
 }
 

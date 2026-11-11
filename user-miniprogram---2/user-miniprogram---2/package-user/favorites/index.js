@@ -103,7 +103,7 @@ Page({
   },
 
   goDetail(e) {
-    const id = e.detail && e.detail.id
+    const id = (e.detail && e.detail.id) || (e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.id)
     if (id) {
       app.navigateToPage(`/pages/product-detail/index?id=${id}`)
     }

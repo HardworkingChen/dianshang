@@ -71,10 +71,10 @@ public interface AiService {
      * @param userMessage 用户消息
      * @return AI 回复文本
      */
-    default String customerSupportReply(Long userId,
-                                        Map<String, Object> conversationContext,
-                                        List<Map<String, Object>> history,
-                                        String userMessage) {
+    default Map<String, Object> customerSupportReply(Long userId,
+                                                     Map<String, Object> conversationContext,
+                                                     List<Map<String, Object>> history,
+                                                     String userMessage) {
         throw new BusinessException("AI 客服回复能力未实现");
     }
 

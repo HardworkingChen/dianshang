@@ -2,6 +2,7 @@ package com.ecommerce.service.impl;
 
 import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.ecommerce.entity.AnalyticsAssociationRule;
 import com.ecommerce.entity.AnalyticsBehaviorHeatmap;
 import com.ecommerce.entity.AnalyticsFunnelDaily;
@@ -11,6 +12,7 @@ import com.ecommerce.entity.AnalyticsRfmUserSnapshot;
 import com.ecommerce.entity.AnalyticsSalesDaily;
 import com.ecommerce.entity.Order;
 import com.ecommerce.entity.OrderItem;
+import com.ecommerce.entity.Product;
 import com.ecommerce.entity.User;
 import com.ecommerce.entity.UserBehavior;
 import com.ecommerce.mapper.AnalyticsAssociationRuleMapper;
@@ -22,6 +24,7 @@ import com.ecommerce.mapper.AnalyticsRfmUserSnapshotMapper;
 import com.ecommerce.mapper.AnalyticsSalesDailyMapper;
 import com.ecommerce.mapper.OrderItemMapper;
 import com.ecommerce.mapper.OrderMapper;
+import com.ecommerce.mapper.ProductMapper;
 import com.ecommerce.mapper.UserBehaviorMapper;
 import com.ecommerce.mapper.UserMapper;
 import com.ecommerce.service.DataAnalysisService;
@@ -46,6 +49,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -63,6 +67,8 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
     private OrderMapper orderMapper;
     @Autowired
     private OrderItemMapper orderItemMapper;
+    @Autowired
+    private ProductMapper productMapper;
     @Autowired
     private UserMapper userMapper;
 
@@ -455,6 +461,7 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
         rules.sort((a, b) -> Double.compare(
                 ((Number) b.get("lift")).doubleValue(),
                 ((Number) a.get("lift")).doubleValue()));
+        attachAssociationProductNames(rules);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("rules", rules.subList(0, Math.min(50, rules.size())));
@@ -526,12 +533,7 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
 
     @Override
     public Map<String, Object> salesTrendAnalysis() {
-        Map<String, Object> snapshot = loadSalesTrendSnapshot();
-        if (snapshot != null) {
-            return snapshot;
-        }
-
-        LocalDateTime startDate = LocalDateTime.now().minusDays(30);
+        LocalDateTime startDate = LocalDate.now().minusDays(29).atStartOfDay();
         List<Order> recentOrders = orderMapper.selectList(
                 new LambdaQueryWrapper<Order>()
                         .in(Order::getStatus, 1, 2, 3)
@@ -610,6 +612,12 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
         }
 
         List<UserBehavior> allBehaviors = behaviorMapper.selectList(null);
+        LocalDate snapshotDate = allBehaviors.stream()
+                .map(UserBehavior::getCreateTime)
+                .filter(Objects::nonNull)
+                .max(LocalDateTime::compareTo)
+                .map(LocalDateTime::toLocalDate)
+                .orElse(null);
 
         int[][] heatmap = new int[7][24];
         for (UserBehavior b : allBehaviors) {
@@ -638,6 +646,7 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
         result.put("days", Arrays.asList(days));
         result.put("hours", hours);
         result.put("max", maxVal);
+        result.put("snapshotDate", snapshotDate);
         return result;
     }
 
@@ -651,10 +660,23 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
         }
 
         long totalBehaviors = behaviorMapper.selectCount(null);
-        long totalOrders = orderMapper.selectCount(
+        List<Order> paidOrders = orderMapper.selectList(
                 new LambdaQueryWrapper<Order>().in(Order::getStatus, 1, 2, 3));
-        long totalUsers = userMapper.selectCount(
-                new LambdaQueryWrapper<User>().eq(User::getRole, "user"));
+        long totalOrders = paidOrders.size();
+        Map<String, Object> activeUserRow = firstOrNull(behaviorMapper.selectMaps(
+                new QueryWrapper<UserBehavior>()
+                        .select("COUNT(DISTINCT user_id) AS cnt")
+                        .isNotNull("user_id")));
+        long totalActiveUsers = nullSafeLong(toLong(activeUserRow == null ? null : activeUserRow.get("cnt")));
+        long paidUserCount = paidOrders.stream()
+                .map(Order::getUserId)
+                .filter(userId -> userId != null)
+                .distinct()
+                .count();
+        BigDecimal gmv = paidOrders.stream()
+                .map(Order::getTotalAmount)
+                .filter(amount -> amount != null)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         List<Map<String, Object>> behaviorStats = behaviorMapper.selectBehaviorStats();
 
@@ -673,7 +695,9 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("totalBehaviorRecords", totalBehaviors);
         result.put("totalPaidOrders", totalOrders);
-        result.put("totalActiveUsers", totalUsers);
+        result.put("totalActiveUsers", totalActiveUsers);
+        result.put("paidUserCount", paidUserCount);
+        result.put("gmv", round2(gmv.doubleValue()));
         result.put("viewCount", viewCount);
         result.put("cartCount", cartCount);
         result.put("favoriteCount", favCount);
@@ -1122,6 +1146,7 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
                             ((Number) left.get("lift")).doubleValue()))
                     .limit(50)
                     .collect(Collectors.toList());
+            attachAssociationProductNames(rules);
 
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("rules", rules);
@@ -1133,6 +1158,41 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
         } catch (Exception exception) {
             log.warn("[DataAnalysis] Failed to load association snapshot, fallback to live calculation: {}", exception.getMessage());
             return null;
+        }
+    }
+
+    private void attachAssociationProductNames(List<Map<String, Object>> rules) {
+        if (rules == null || rules.isEmpty()) {
+            return;
+        }
+        Set<Long> productIds = new HashSet<>();
+        for (Map<String, Object> rule : rules) {
+            Long productA = toLong(rule.get("productA"));
+            Long productB = toLong(rule.get("productB"));
+            if (productA != null && productA > 0) {
+                productIds.add(productA);
+            }
+            if (productB != null && productB > 0) {
+                productIds.add(productB);
+            }
+        }
+        if (productIds.isEmpty()) {
+            return;
+        }
+
+        Map<Long, String> productNameMap = productMapper.selectBatchIds(productIds).stream()
+                .filter(product -> product != null && product.getId() != null)
+                .collect(Collectors.toMap(Product::getId, Product::getName, (left, right) -> left));
+
+        for (Map<String, Object> rule : rules) {
+            Long productA = toLong(rule.get("productA"));
+            Long productB = toLong(rule.get("productB"));
+            if (productA != null) {
+                rule.put("productAName", productNameMap.getOrDefault(productA, "商品 #" + productA));
+            }
+            if (productB != null) {
+                rule.put("productBName", productNameMap.getOrDefault(productB, "商品 #" + productB));
+            }
         }
     }
 
@@ -1275,6 +1335,7 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
                 Object parsed = JSON.parse(snapshot.getReportData());
                 if (parsed instanceof Map) {
                     Map<String, Object> result = new LinkedHashMap<>((Map<String, Object>) parsed);
+                    enrichSummarySnapshot(result);
                     result.put("snapshotDate", snapshot.getSnapshotDate());
                     result.put("reportCode", snapshot.getReportCode());
                     return result;
@@ -1284,6 +1345,47 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
             }
         }
         return null;
+    }
+
+    private void enrichSummarySnapshot(Map<String, Object> result) {
+        if (result == null) {
+            return;
+        }
+
+        boolean missingActiveUsers = result.get("totalActiveUsers") == null;
+        boolean missingPaidUserCount = result.get("paidUserCount") == null;
+        boolean missingGmv = result.get("gmv") == null;
+        if (!missingActiveUsers && !missingPaidUserCount && !missingGmv) {
+            return;
+        }
+
+        if (missingActiveUsers) {
+            Map<String, Object> activeUserRow = firstOrNull(behaviorMapper.selectMaps(
+                    new QueryWrapper<UserBehavior>()
+                            .select("COUNT(DISTINCT user_id) AS cnt")
+                            .isNotNull("user_id")));
+            result.put("totalActiveUsers", nullSafeLong(toLong(activeUserRow == null ? null : activeUserRow.get("cnt"))));
+        }
+
+        if (missingPaidUserCount || missingGmv) {
+            List<Order> paidOrders = orderMapper.selectList(
+                    new LambdaQueryWrapper<Order>().in(Order::getStatus, 1, 2, 3));
+            if (missingPaidUserCount) {
+                long paidUserCount = paidOrders.stream()
+                        .map(Order::getUserId)
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .count();
+                result.put("paidUserCount", paidUserCount);
+            }
+            if (missingGmv) {
+                BigDecimal gmv = paidOrders.stream()
+                        .map(Order::getTotalAmount)
+                        .filter(Objects::nonNull)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                result.put("gmv", round2(gmv.doubleValue()));
+            }
+        }
     }
 
     // ==================== 工具方法 ====================
@@ -1312,6 +1414,20 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
 
     private <T> T firstOrNull(List<T> list) {
         return list == null || list.isEmpty() ? null : list.get(0);
+    }
+
+    private Long toLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value).trim());
+        } catch (Exception ignore) {
+            return null;
+        }
     }
 
     private double round2(double val) {

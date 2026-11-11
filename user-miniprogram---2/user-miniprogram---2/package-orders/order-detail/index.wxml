@@ -14,9 +14,6 @@
         <view class="status-title text-h2">{{order.statusText}}</view>
         <text class="seckill-badge" wx:if="{{order.isSeckill}}">秒杀订单</text>
       </view>
-      <view class="status-desc" wx:if="{{order.status === 'unpaid'}}">待支付</view>
-      <view class="status-desc" wx:if="{{order.status === 'unshipped'}}">备货中</view>
-      <view class="status-desc" wx:if="{{order.status === 'unreceived'}}">待收货</view>
       <view class="status-metrics">
         <view class="status-metric">
           <text class="status-metric-label">订单编号</text>
@@ -87,39 +84,20 @@
       </view>
     </view>
 
-    <view class="section completion-section" wx:if="{{completionInsight}}">
-      <view class="completion-topline">
-        <view>
-          <text class="completion-kicker">{{completionInsight.sourceLabel}}</text>
-          <view class="completion-title">{{completionInsight.headline}}</view>
-        </view>
-        <view class="completion-token">Token {{completionInsight.tokenText}}</view>
-      </view>
-      <view class="completion-copy">{{completionInsight.feedbackText}} · {{completionInsight.recommendationText}}</view>
-      <view class="completion-steps">
-        <view class="completion-step" wx:for="{{completionInsight.steps}}" wx:key="label">
-          <text class="completion-step-label">{{item.label}}</text>
-          <text class="completion-step-value">{{item.value}}</text>
-        </view>
-      </view>
-    </view>
-
     <view class="section repurchase-section" wx:if="{{repurchaseProducts.length}}">
       <view class="section-head-row">
-        <view>
-          <view class="section-caption">复购与搭配推荐</view>
-          <view class="repurchase-title">为你生成下一步推荐</view>
-        </view>
-        <view class="repurchase-badge">订单完成召回</view>
+        <view class="section-caption">相关商品</view>
       </view>
       <view class="repurchase-grid">
         <view class="repurchase-item" wx:for="{{repurchaseProducts}}" wx:key="id">
           <product-card
             product="{{item}}"
             className="order-repurchase-card"
-            showReason="{{true}}"
+            showReason="{{false}}"
             showSales="{{true}}"
-            bind:click="goToRecommendProduct"
+            bind:cardtap="goToRecommendProduct"
+            data-id="{{item.id}}"
+            data-rec-token="{{item.recommendationToken}}"
             bind:explain="goToRecommendProduct"
           ></product-card>
         </view>

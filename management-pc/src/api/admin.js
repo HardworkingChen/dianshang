@@ -1,25 +1,39 @@
 import request from '../utils/request'
 import {
+  demoActivityHeatmap,
+  demoAdminSalesAnalytics,
   competitionRequestConfig,
+  demoAdminWorkbenchBadgeCounts,
   demoAnalysisSummary,
+  demoAssociationRules,
+  demoBehaviorAnalytics,
   demoDashboard,
+  demoFunnelAnalysis,
   demoKmeansLatestTask,
   demoKmeansSegments,
   demoKmeansSummary,
   demoKmeansTaskHistory,
   demoKmeansUserDetail,
   demoKmeansUsers,
+  demoRetentionAnalysis,
   demoRecommendAnalytics,
+  demoRfmAnalysis,
   demoSeckillActivities,
   demoSeckillApplications,
+  demoSearchBehaviorAnalytics,
   demoSeckillDiagnostics,
   demoSeckillStressResult,
+  demoSalesTrendAnalysis,
+  demoStreamOverview,
+  demoStreamUserSnapshot,
+  demoSystemHealth,
+  isCompetitionDemoToken,
   withCompetitionFallback,
 } from '../utils/competitionDemoData'
 
 export function getAdminDashboard() {
   return withCompetitionFallback(
-    request.get('/admin/dashboard', competitionRequestConfig()),
+    () => request.get('/admin/dashboard', competitionRequestConfig()),
     demoDashboard
   )
 }
@@ -45,7 +59,10 @@ export function getBusinessAnalysis() {
 }
 
 export function getAdminSystemHealth() {
-  return request.get('/admin/system/health')
+  return withCompetitionFallback(
+    () => request.get('/admin/system/health', competitionRequestConfig()),
+    demoSystemHealth
+  )
 }
 
 export function getAdminUsers(params) {
@@ -57,7 +74,10 @@ export function getAdminProfileChanges(params) {
 }
 
 export function getAdminWorkbenchBadgeCounts(params) {
-  return request.get('/admin/workbench/badge-counts', { params })
+  return withCompetitionFallback(
+    () => request.get('/admin/workbench/badge-counts', competitionRequestConfig({ params })),
+    demoAdminWorkbenchBadgeCounts
+  )
 }
 
 export function approveAdminProfileChange(id) {
@@ -265,22 +285,31 @@ export function adjustAdminUserBalance(payload) {
 }
 
 export function getAdminSalesAnalytics() {
-  return request.get('/admin/analytics/sales')
+  return withCompetitionFallback(
+    () => request.get('/admin/analytics/sales', competitionRequestConfig()),
+    demoAdminSalesAnalytics
+  )
 }
 
 export function getAdminBehaviorAnalytics() {
-  return request.get('/admin/analytics/behavior')
+  return withCompetitionFallback(
+    () => request.get('/admin/analytics/behavior', competitionRequestConfig()),
+    demoBehaviorAnalytics
+  )
 }
 
 export function getAdminSearchBehaviorAnalytics(days = 14) {
-  return request.get('/admin/analytics/search-behavior', {
-    params: { days },
-  })
+  return withCompetitionFallback(
+    () => request.get('/admin/analytics/search-behavior', competitionRequestConfig({
+      params: { days },
+    })),
+    () => demoSearchBehaviorAnalytics(days)
+  )
 }
 
 export function getAdminRecommendAnalytics(days = 30) {
   return withCompetitionFallback(
-    request.get('/admin/analytics/recommendation', competitionRequestConfig({
+    () => request.get('/admin/analytics/recommendation', competitionRequestConfig({
       params: { days },
     })),
     () => demoRecommendAnalytics(days)
@@ -288,84 +317,117 @@ export function getAdminRecommendAnalytics(days = 30) {
 }
 
 export function getAdminStreamOverview(params) {
-  return request.get('/admin/stream/overview', { params })
+  return withCompetitionFallback(
+    () => request.get('/admin/stream/overview', competitionRequestConfig({ params })),
+    demoStreamOverview
+  )
 }
 
 export function getAdminStreamStatus() {
-  return request.get('/admin/stream/status')
+  return withCompetitionFallback(
+    () => request.get('/admin/stream/status', competitionRequestConfig()),
+    demoStreamOverview.status
+  )
 }
 
 export function getAdminStreamUserSnapshot(userId) {
-  return request.get(`/admin/stream/users/${userId}/snapshot`)
+  return withCompetitionFallback(
+    () => request.get(`/admin/stream/users/${userId}/snapshot`, competitionRequestConfig()),
+    () => demoStreamUserSnapshot(userId)
+  )
 }
 
 export function getAdminStreamHotProducts(params) {
-  return request.get('/admin/stream/hot-products', { params })
+  return withCompetitionFallback(
+    () => request.get('/admin/stream/hot-products', competitionRequestConfig({ params })),
+    demoStreamOverview.hotProducts1h
+  )
 }
 
 export function getAdminStreamMonitor() {
-  return request.get('/admin/stream/monitor')
+  return withCompetitionFallback(
+    () => request.get('/admin/stream/monitor', competitionRequestConfig()),
+    demoStreamOverview.monitor
+  )
 }
 
 // ==================== 大数据分析 ====================
 
 export function getAnalysisSummary() {
   return withCompetitionFallback(
-    request.get('/admin/analysis/summary', competitionRequestConfig()),
+    () => request.get('/admin/analysis/summary', competitionRequestConfig()),
     demoAnalysisSummary
   )
 }
 
 export function getFunnelAnalysis() {
-  return request.get('/admin/analysis/funnel')
+  return withCompetitionFallback(
+    () => request.get('/admin/analysis/funnel', competitionRequestConfig()),
+    demoFunnelAnalysis
+  )
 }
 
 export function getRfmAnalysis() {
-  return request.get('/admin/analysis/rfm')
+  return withCompetitionFallback(
+    () => request.get('/admin/analysis/rfm', competitionRequestConfig()),
+    demoRfmAnalysis
+  )
 }
 
 export function getAssociationRules(params) {
-  return request.get('/admin/analysis/association', { params })
+  return withCompetitionFallback(
+    () => request.get('/admin/analysis/association', competitionRequestConfig({ params })),
+    demoAssociationRules
+  )
 }
 
 export function getRetentionAnalysis() {
-  return request.get('/admin/analysis/retention')
+  return withCompetitionFallback(
+    () => request.get('/admin/analysis/retention', competitionRequestConfig()),
+    demoRetentionAnalysis
+  )
 }
 
 export function getSalesTrendAnalysis() {
-  return request.get('/admin/analysis/sales-trend')
+  return withCompetitionFallback(
+    () => request.get('/admin/analysis/sales-trend', competitionRequestConfig()),
+    demoSalesTrendAnalysis
+  )
 }
 
 export function getActivityHeatmap() {
-  return request.get('/admin/analysis/heatmap')
+  return withCompetitionFallback(
+    () => request.get('/admin/analysis/heatmap', competitionRequestConfig()),
+    demoActivityHeatmap
+  )
 }
 
 // ==================== KMeans 用户分群分析 ====================
 
 export function getAdminKmeansLatestTask() {
   return withCompetitionFallback(
-    request.get('/admin/analysis/kmeans/latest-task', competitionRequestConfig()),
+    () => request.get('/admin/analysis/kmeans/latest-task', competitionRequestConfig()),
     demoKmeansLatestTask
   )
 }
 
 export function getAdminKmeansSummary() {
   return withCompetitionFallback(
-    request.get('/admin/analysis/kmeans/summary', competitionRequestConfig()),
+    () => request.get('/admin/analysis/kmeans/summary', competitionRequestConfig()),
     demoKmeansSummary
   )
 }
 
 export function getAdminKmeansSegments() {
   return withCompetitionFallback(
-    request.get('/admin/analysis/kmeans/segments', competitionRequestConfig()),
+    () => request.get('/admin/analysis/kmeans/segments', competitionRequestConfig()),
     demoKmeansSegments
   )
 }
 
 export function getAdminKmeansTaskHistory(params) {
   return withCompetitionFallback(
-    request.get('/admin/analysis/kmeans/tasks', competitionRequestConfig({ params })),
+    () => request.get('/admin/analysis/kmeans/tasks', competitionRequestConfig({ params })),
     demoKmeansTaskHistory
   )
 }
@@ -379,45 +441,45 @@ export function triggerAdminKmeansTask(payload) {
     finalStatus: 'SUBMITTED',
   }
   return withCompetitionFallback(
-    request.post('/admin/analysis/kmeans/tasks/trigger', payload, competitionRequestConfig()),
+    () => request.post('/admin/analysis/kmeans/tasks/trigger', payload, competitionRequestConfig()),
     fallback
   )
 }
 
 export function getAdminKmeansUsers(params) {
   return withCompetitionFallback(
-    request.get('/admin/analysis/kmeans/users', competitionRequestConfig({ params })),
+    () => request.get('/admin/analysis/kmeans/users', competitionRequestConfig({ params })),
     demoKmeansUsers
   )
 }
 
 export function getAdminKmeansUserDetail(userId) {
-  return withCompetitionFallback(
-    request.get(`/admin/analysis/kmeans/user/${userId}`, competitionRequestConfig()),
-    { ...demoKmeansUserDetail, userId }
-  )
+  if (isCompetitionDemoToken()) {
+    return Promise.resolve({ ...demoKmeansUserDetail, userId })
+  }
+  return request.get(`/admin/analysis/kmeans/user/${userId}`, competitionRequestConfig())
 }
 
 // ==================== 秒杀活动管理 ====================
 
 export function getAdminSeckillActivities(params) {
   return withCompetitionFallback(
-    request.get('/admin/seckill/activities', competitionRequestConfig({ params })),
+    () => request.get('/admin/seckill/activities', competitionRequestConfig({ params })),
     demoSeckillActivities
   )
 }
 
 export function getAdminSeckillDiagnostics() {
   return withCompetitionFallback(
-    request.get('/admin/seckill/diagnostics', competitionRequestConfig()),
+    () => request.get('/admin/seckill/diagnostics', competitionRequestConfig()),
     demoSeckillDiagnostics
   )
 }
 
 export function runAdminSeckillStressTest(payload = {}) {
   return withCompetitionFallback(
-    request.post('/admin/seckill/stress-test/run', payload, competitionRequestConfig({
-    timeout: 120000,
+    () => request.post('/admin/seckill/stress-test/run', payload, competitionRequestConfig({
+      timeout: 120000,
     })),
     demoSeckillStressResult
   )
@@ -440,7 +502,7 @@ export function toggleAdminSeckillActivityPublish(id, published) {
 
 export function getAdminSeckillApplications(params) {
   return withCompetitionFallback(
-    request.get('/admin/seckill/applications', competitionRequestConfig({ params })),
+    () => request.get('/admin/seckill/applications', competitionRequestConfig({ params })),
     demoSeckillApplications
   )
 }

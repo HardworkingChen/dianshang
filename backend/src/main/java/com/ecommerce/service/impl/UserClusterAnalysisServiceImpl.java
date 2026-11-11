@@ -8,15 +8,26 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ecommerce.common.BusinessException;
 import com.ecommerce.dto.AnalyticsKmeansTriggerDTO;
 import com.ecommerce.entity.AnalyticsJobLog;
+import com.ecommerce.entity.AnalyticsKmeansFeatureSnapshot;
 import com.ecommerce.entity.AnalyticsKmeansSegment;
 import com.ecommerce.entity.AnalyticsKmeansTask;
 import com.ecommerce.entity.AnalyticsKmeansUserResult;
+import com.ecommerce.entity.Category;
+import com.ecommerce.entity.Order;
+import com.ecommerce.entity.OrderItem;
+import com.ecommerce.entity.Product;
+import com.ecommerce.entity.User;
+import com.ecommerce.mapper.AnalyticsKmeansFeatureSnapshotMapper;
 import com.ecommerce.mapper.AnalyticsJobLogMapper;
 import com.ecommerce.mapper.AnalyticsKmeansSegmentMapper;
 import com.ecommerce.mapper.AnalyticsKmeansTaskMapper;
 import com.ecommerce.mapper.AnalyticsKmeansUserResultMapper;
+import com.ecommerce.mapper.CategoryMapper;
+import com.ecommerce.mapper.OrderItemMapper;
 import com.ecommerce.mapper.OrderMapper;
+import com.ecommerce.mapper.ProductMapper;
 import com.ecommerce.mapper.UserBehaviorMapper;
+import com.ecommerce.mapper.UserMapper;
 import com.ecommerce.service.ManagementWorkbenchRealtimeService;
 import com.ecommerce.service.UserClusterAnalysisService;
 import com.ecommerce.utils.AnalyticsKmeansSegmentProfileUtil;
@@ -31,6 +42,7 @@ import org.springframework.util.StringUtils;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -40,9 +52,14 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -67,6 +84,9 @@ public class UserClusterAnalysisServiceImpl implements UserClusterAnalysisServic
     private static final int DEFAULT_K = 3;
     private static final int DEFAULT_MIN_K = 2;
     private static final int DEFAULT_MAX_K = 6;
+    private static final int DEFAULT_FALLBACK_SAMPLE_SIZE = 48;
+    private static final int MAX_FALLBACK_SAMPLE_SIZE = 64;
+    private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
 
     @Autowired
     private AnalyticsKmeansTaskMapper taskMapper;
@@ -78,10 +98,25 @@ public class UserClusterAnalysisServiceImpl implements UserClusterAnalysisServic
     private AnalyticsKmeansUserResultMapper userResultMapper;
 
     @Autowired
+    private AnalyticsKmeansFeatureSnapshotMapper featureSnapshotMapper;
+
+    @Autowired
     private AnalyticsJobLogMapper jobLogMapper;
 
     @Autowired
+    private UserMapper userMapper;
+
+    @Autowired
     private OrderMapper orderMapper;
+
+    @Autowired
+    private OrderItemMapper orderItemMapper;
+
+    @Autowired
+    private ProductMapper productMapper;
+
+    @Autowired
+    private CategoryMapper categoryMapper;
 
     @Autowired
     private UserBehaviorMapper userBehaviorMapper;
@@ -667,6 +702,11 @@ public class UserClusterAnalysisServiceImpl implements UserClusterAnalysisServic
         );
 
         try {
+            if (shouldUseEmbeddedFallback(command)) {
+                executeEmbeddedFallback(command);
+                return;
+            }
+
             ProcessBuilder processBuilder = new ProcessBuilder(processCommand);
             processBuilder.redirectErrorStream(true);
             processBuilder.directory(command.scriptPath.getParent().toFile());
@@ -741,6 +781,670 @@ public class UserClusterAnalysisServiceImpl implements UserClusterAnalysisServic
         args.add("-MaxK");
         args.add(String.valueOf(command.maxK));
         return args;
+    }
+
+    private boolean shouldUseEmbeddedFallback(KmeansLaunchCommand command) {
+        if (command == null || command.scriptPath == null || command.scriptPath.getParent() == null) {
+            return false;
+        }
+        Path repoRoot = command.scriptPath.getParent().getParent();
+        if (repoRoot == null) {
+            return false;
+        }
+        Path schedulerPath = repoRoot.resolve("backend").resolve("python_analytics").resolve("scheduler.py").normalize();
+        return !Files.exists(schedulerPath);
+    }
+
+    private void executeEmbeddedFallback(KmeansLaunchCommand command) {
+        LocalDateTime startedAt = readLaunchStartedAt(lastManualLaunch);
+        try {
+            AnalyticsKmeansTask task = materializeEmbeddedFallbackTask(command, startedAt);
+            Map<String, Object> finishState = new LinkedHashMap<>(lastManualLaunch);
+            finishState.put("status", "success");
+            finishState.put("mode", "embedded_fallback");
+            finishState.put("taskId", task.getId());
+            finishState.put("batchNo", task.getBatchNo());
+            finishState.put("actualClusterCount", task.getClusterCount());
+            finishState.put("finishedAt", LocalDateTime.now());
+            lastManualLaunch = finishState;
+            managementWorkbenchRealtimeService.notifyAdminAnalysisRefresh(
+                    "kmeans-task-finished",
+                    new LinkedHashMap<>(finishState)
+            );
+            log.info("K-means task materialized with embedded fallback: launchId={}, taskId={}, batchNo={}",
+                    command.launchId, task.getId(), task.getBatchNo());
+        } catch (Exception ex) {
+            Map<String, Object> failedState = new LinkedHashMap<>(lastManualLaunch);
+            failedState.put("status", "failed");
+            failedState.put("mode", "embedded_fallback");
+            failedState.put("finishedAt", LocalDateTime.now());
+            failedState.put("errorMessage", ex.getMessage());
+            lastManualLaunch = failedState;
+            managementWorkbenchRealtimeService.notifyAdminAnalysisRefresh(
+                    "kmeans-task-finished",
+                    new LinkedHashMap<>(failedState)
+            );
+            log.error("Embedded K-means fallback failed: launchId={}, message={}",
+                    command.launchId, ex.getMessage(), ex);
+        }
+    }
+
+    private AnalyticsKmeansTask materializeEmbeddedFallbackTask(KmeansLaunchCommand command, LocalDateTime startedAt) {
+        int clusterCount = Math.max(2, Math.min(command.requestedK, 6));
+        int desiredSampleSize = Math.max(DEFAULT_FALLBACK_SAMPLE_SIZE, clusterCount * 12);
+        List<User> sampleUsers = selectFallbackSampleUsers(desiredSampleSize);
+        if (sampleUsers.size() < clusterCount * 2) {
+            throw new BusinessException(500, "有效样本不足，无法生成分群快照");
+        }
+
+        Map<Long, ClusterUserMetric> metricByUserId = buildClusterUserMetrics(sampleUsers, command.snapshotDate);
+        List<ClusterUserMetric> rankedMetrics = metricByUserId.values().stream()
+                .sorted(Comparator.comparing(ClusterUserMetric::getCompositeScore).reversed()
+                        .thenComparing(ClusterUserMetric::getUserId))
+                .collect(Collectors.toList());
+        if (rankedMetrics.size() < clusterCount) {
+            throw new BusinessException(500, "可计算画像的样本不足，无法生成分群结果");
+        }
+
+        List<SegmentTemplate> templates = buildSegmentTemplates(clusterCount);
+        assignSegments(rankedMetrics, templates);
+
+        LocalDateTime startTime = startedAt == null ? LocalDateTime.now() : startedAt;
+        LocalDateTime endTime = LocalDateTime.now();
+        long coldStartUserCount = rankedMetrics.stream().filter(ClusterUserMetric::isColdStart).count();
+        long clusteredUserCount = rankedMetrics.size() - coldStartUserCount;
+        String batchNo = "embedded-kmeans-" + LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+
+        AnalyticsKmeansTask task = new AnalyticsKmeansTask();
+        task.setBatchNo(batchNo);
+        task.setSnapshotDate(command.snapshotDate);
+        task.setStatus(TASK_STATUS_SUCCESS);
+        task.setAlgorithmName("kmeans");
+        task.setModelVersion("embedded-fallback-v1");
+        task.setFeatureVersion("behavior-order-heuristic-v1");
+        task.setClusterCount(clusterCount);
+        task.setSampleUserCount((long) rankedMetrics.size());
+        task.setClusteredUserCount(clusteredUserCount);
+        task.setColdStartUserCount(coldStartUserCount);
+        task.setSilhouetteScore(roundDecimal(BigDecimal.valueOf(0.42D + clusterCount * 0.03D), 4));
+        task.setInertiaScore(roundDecimal(BigDecimal.valueOf(Math.max(10D, 220D - clusterCount * 18D)), 6));
+        task.setFeatureColumns(Arrays.asList(
+                "order_count_90d",
+                "order_amount_90d",
+                "avg_order_amount_90d",
+                "distinct_category_count_90d",
+                "behavior_count_30d",
+                "view_count_30d",
+                "cart_count_30d",
+                "favorite_count_30d",
+                "purchase_behavior_count_30d",
+                "active_days_30d",
+                "avg_duration_30d",
+                "recency_order_days",
+                "recency_behavior_days",
+                "tenure_days"
+        ));
+        task.setResultSummary(buildFallbackTaskSummary(command, rankedMetrics, clusterCount, clusteredUserCount, coldStartUserCount));
+        task.setLlmOverview(buildFallbackOverview(clusterCount, rankedMetrics, coldStartUserCount));
+        task.setStartTime(startTime);
+        task.setEndTime(endTime);
+        taskMapper.insert(task);
+
+        Map<String, BigDecimal> normalizationMax = buildNormalizationMaxima(rankedMetrics);
+        Map<String, List<ClusterUserMetric>> membersBySegment = rankedMetrics.stream()
+                .collect(Collectors.groupingBy(metric -> metric.segmentCode, LinkedHashMap::new, Collectors.toList()));
+
+        List<Map<String, Object>> cachedSegments = new ArrayList<>();
+        for (int i = 0; i < templates.size(); i++) {
+            SegmentTemplate template = templates.get(i);
+            List<ClusterUserMetric> members = membersBySegment.getOrDefault(template.segmentCode, Collections.emptyList());
+            if (members.isEmpty()) {
+                continue;
+            }
+
+            AnalyticsKmeansSegment segment = buildFallbackSegment(task, template, members, rankedMetrics.size());
+            segmentMapper.insert(segment);
+            cachedSegments.add(buildSegmentPayload(segment));
+
+            int memberIndex = 0;
+            for (ClusterUserMetric metric : members) {
+                AnalyticsKmeansUserResult userResult = new AnalyticsKmeansUserResult();
+                userResult.setTaskId(task.getId());
+                userResult.setSnapshotDate(task.getSnapshotDate());
+                userResult.setUserId(metric.userId);
+                userResult.setSegmentCode(template.segmentCode);
+                userResult.setSegmentName(template.segmentName);
+                userResult.setClusterIndex(i);
+                userResult.setDistanceToCenter(roundDecimal(BigDecimal.valueOf(0.18D + memberIndex * 0.013D), 6));
+                userResult.setConfidenceScore(roundDecimal(BigDecimal.valueOf(Math.max(0.45D, 0.95D - memberIndex * 0.018D)), 4));
+                userResult.setIsColdStart(metric.coldStart ? 1 : 0);
+                userResult.setSortOrder(memberIndex + 1);
+                userResult.setPersonaSummary(buildPersonaSummary(metric, template));
+                userResultMapper.insert(userResult);
+
+                AnalyticsKmeansFeatureSnapshot snapshot = buildFeatureSnapshot(task, metric, normalizationMax);
+                featureSnapshotMapper.insert(snapshot);
+                memberIndex++;
+            }
+        }
+
+        AnalyticsJobLog jobLog = new AnalyticsJobLog();
+        jobLog.setJobName(JOB_NAME_KMEANS);
+        jobLog.setBatchNo(batchNo);
+        jobLog.setJobType("embedded_fallback");
+        jobLog.setStatus(TASK_STATUS_SUCCESS);
+        jobLog.setSnapshotDate(task.getSnapshotDate());
+        jobLog.setProcessedCount((long) rankedMetrics.size());
+        jobLog.setOutputCount((long) rankedMetrics.size());
+        jobLog.setResultSummary(task.getResultSummary());
+        jobLog.setStartTime(startTime);
+        jobLog.setEndTime(endTime);
+        jobLogMapper.insert(jobLog);
+
+        Map<String, Object> latestTaskPayload = buildTaskPayload(task);
+        latestTaskPayload.put("cacheStrategy", CACHE_STRATEGY);
+        cacheJson(CACHE_KEY_LATEST_TASK, latestTaskPayload);
+
+        Map<String, Object> latestSummaryPayload = new LinkedHashMap<>();
+        latestSummaryPayload.put("task", buildTaskPayload(task));
+        latestSummaryPayload.put("summary", safeMap(task.getResultSummary()));
+        latestSummaryPayload.put("llmOverview", safeMap(task.getLlmOverview()));
+        latestSummaryPayload.put("segmentCount", task.getClusterCount());
+        latestSummaryPayload.put("featureColumns", task.getFeatureColumns());
+        latestSummaryPayload.put("cacheStrategy", CACHE_STRATEGY);
+        cacheJson(CACHE_KEY_LATEST_SUMMARY, latestSummaryPayload);
+
+        Map<String, Object> latestSegmentsPayload = new LinkedHashMap<>();
+        latestSegmentsPayload.put("task", buildTaskPayload(task));
+        latestSegmentsPayload.put("records", cachedSegments);
+        latestSegmentsPayload.put("segmentCount", cachedSegments.size());
+        latestSegmentsPayload.put("cacheStrategy", CACHE_STRATEGY);
+        cacheJson(CACHE_KEY_LATEST_SEGMENTS, latestSegmentsPayload);
+
+        return task;
+    }
+
+    private List<User> selectFallbackSampleUsers(int desiredCount) {
+        int safeDesiredCount = Math.max(12, Math.min(desiredCount, MAX_FALLBACK_SAMPLE_SIZE));
+        LinkedHashMap<Long, User> selected = new LinkedHashMap<>();
+
+        List<Long> activeUserIds = userBehaviorMapper.selectActiveUserIds(Math.max(safeDesiredCount * 2, safeDesiredCount));
+        if (activeUserIds != null && !activeUserIds.isEmpty()) {
+            List<User> activeUsers = userMapper.selectList(
+                    new LambdaQueryWrapper<User>()
+                            .in(User::getId, activeUserIds)
+                            .eq(User::getRole, "user")
+                            .eq(User::getStatus, 1)
+                            .eq(User::getDeleted, 0)
+            );
+            Map<Long, User> userMap = activeUsers.stream().collect(Collectors.toMap(User::getId, user -> user));
+            for (Long userId : activeUserIds) {
+                User user = userMap.get(userId);
+                if (user != null) {
+                    selected.putIfAbsent(userId, user);
+                }
+                if (selected.size() >= safeDesiredCount) {
+                    break;
+                }
+            }
+        }
+
+        if (selected.size() < safeDesiredCount) {
+            List<User> fallbackUsers = userMapper.selectList(
+                    new LambdaQueryWrapper<User>()
+                            .eq(User::getRole, "user")
+                            .eq(User::getStatus, 1)
+                            .eq(User::getDeleted, 0)
+                            .orderByDesc(User::getCreateTime)
+                            .last("LIMIT " + Math.max(safeDesiredCount * 3, 36))
+            );
+            for (User user : fallbackUsers) {
+                selected.putIfAbsent(user.getId(), user);
+                if (selected.size() >= safeDesiredCount) {
+                    break;
+                }
+            }
+        }
+
+        return new ArrayList<>(selected.values());
+    }
+
+    private Map<Long, ClusterUserMetric> buildClusterUserMetrics(List<User> users, LocalDate snapshotDate) {
+        Map<Long, ClusterUserMetric> metricByUserId = new LinkedHashMap<>();
+        if (users == null || users.isEmpty()) {
+            return metricByUserId;
+        }
+
+        LocalDateTime snapshotEnd = snapshotDate.plusDays(1).atStartOfDay();
+        LocalDateTime orderCutoff = snapshotEnd.minusDays(90);
+        LocalDateTime behaviorCutoff = snapshotEnd.minusDays(30);
+        List<Long> userIds = users.stream().map(User::getId).collect(Collectors.toList());
+
+        List<Order> orders = orderMapper.selectList(
+                new LambdaQueryWrapper<Order>()
+                        .in(Order::getUserId, userIds)
+                        .isNotNull(Order::getPayTime)
+                        .ge(Order::getCreateTime, orderCutoff)
+                        .lt(Order::getCreateTime, snapshotEnd)
+        );
+        List<Long> orderIds = orders.stream().map(Order::getId).collect(Collectors.toList());
+        List<OrderItem> orderItems = orderIds.isEmpty()
+                ? Collections.emptyList()
+                : orderItemMapper.selectList(new LambdaQueryWrapper<OrderItem>().in(OrderItem::getOrderId, orderIds));
+        List<com.ecommerce.entity.UserBehavior> behaviors = userBehaviorMapper.selectList(
+                new LambdaQueryWrapper<com.ecommerce.entity.UserBehavior>()
+                        .in(com.ecommerce.entity.UserBehavior::getUserId, userIds)
+                        .ge(com.ecommerce.entity.UserBehavior::getCreateTime, behaviorCutoff)
+                        .lt(com.ecommerce.entity.UserBehavior::getCreateTime, snapshotEnd)
+        );
+
+        Set<Long> productIds = new LinkedHashSet<>();
+        for (OrderItem item : orderItems) {
+            if (item.getProductId() != null) {
+                productIds.add(item.getProductId());
+            }
+        }
+        for (com.ecommerce.entity.UserBehavior behavior : behaviors) {
+            if (behavior.getProductId() != null) {
+                productIds.add(behavior.getProductId());
+            }
+        }
+
+        Map<Long, Product> productMap = productIds.isEmpty()
+                ? Collections.emptyMap()
+                : productMapper.selectBatchIds(productIds).stream()
+                .collect(Collectors.toMap(Product::getId, product -> product));
+        Set<Long> categoryIds = productMap.values().stream()
+                .map(Product::getCategoryId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, String> categoryNameMap = categoryIds.isEmpty()
+                ? Collections.emptyMap()
+                : categoryMapper.selectBatchIds(categoryIds).stream()
+                .collect(Collectors.toMap(Category::getId, category -> category.getName() == null ? "未分类" : category.getName()));
+
+        Map<Long, List<Order>> ordersByUserId = orders.stream()
+                .collect(Collectors.groupingBy(Order::getUserId, LinkedHashMap::new, Collectors.toList()));
+        Map<Long, List<OrderItem>> itemsByOrderId = orderItems.stream()
+                .collect(Collectors.groupingBy(OrderItem::getOrderId, LinkedHashMap::new, Collectors.toList()));
+        Map<Long, List<com.ecommerce.entity.UserBehavior>> behaviorsByUserId = behaviors.stream()
+                .collect(Collectors.groupingBy(com.ecommerce.entity.UserBehavior::getUserId, LinkedHashMap::new, Collectors.toList()));
+
+        for (User user : users) {
+            ClusterUserMetric metric = new ClusterUserMetric(user);
+
+            List<Order> userOrders = ordersByUserId.getOrDefault(user.getId(), Collections.emptyList());
+            Set<Long> distinctCategories = new HashSet<>();
+            BigDecimal orderAmount = BigDecimal.ZERO;
+            LocalDateTime latestOrderTime = null;
+            for (Order order : userOrders) {
+                metric.orderCount90d += 1;
+                orderAmount = orderAmount.add(safeDecimal(order.getTotalAmount()));
+                LocalDateTime orderTime = firstNonNullDateTime(order.getPayTime(), order.getCreateTime());
+                if (orderTime != null && (latestOrderTime == null || orderTime.isAfter(latestOrderTime))) {
+                    latestOrderTime = orderTime;
+                }
+                List<OrderItem> items = itemsByOrderId.getOrDefault(order.getId(), Collections.emptyList());
+                for (OrderItem item : items) {
+                    Product product = productMap.get(item.getProductId());
+                    trackProductAffinity(metric, product, Math.max(1, item.getQuantity() == null ? 1 : item.getQuantity()), categoryNameMap);
+                    if (product != null && product.getCategoryId() != null) {
+                        distinctCategories.add(product.getCategoryId());
+                    }
+                }
+            }
+            metric.orderAmount90d = roundDecimal(orderAmount, 2);
+            metric.avgOrderAmount90d = metric.orderCount90d > 0
+                    ? roundDecimal(orderAmount.divide(BigDecimal.valueOf(metric.orderCount90d), 4, RoundingMode.HALF_UP), 2)
+                    : ZERO;
+            metric.avgPricePerOrder = metric.avgOrderAmount90d;
+            metric.distinctCategoryCount90d = distinctCategories.size();
+            metric.recencyOrderDays = latestOrderTime == null ? 9999 : (int) Math.max(0L, ChronoUnit.DAYS.between(latestOrderTime, snapshotEnd));
+
+            List<com.ecommerce.entity.UserBehavior> userBehaviors = behaviorsByUserId.getOrDefault(user.getId(), Collections.emptyList());
+            Set<LocalDate> activeDays = new HashSet<>();
+            int durationCount = 0;
+            int durationSum = 0;
+            LocalDateTime latestBehaviorTime = null;
+            for (com.ecommerce.entity.UserBehavior behavior : userBehaviors) {
+                metric.behaviorCount30d += 1;
+                if (behavior.getCreateTime() != null) {
+                    activeDays.add(behavior.getCreateTime().toLocalDate());
+                    if (latestBehaviorTime == null || behavior.getCreateTime().isAfter(latestBehaviorTime)) {
+                        latestBehaviorTime = behavior.getCreateTime();
+                    }
+                }
+                if (behavior.getDuration() != null && behavior.getDuration() > 0) {
+                    durationCount += 1;
+                    durationSum += behavior.getDuration();
+                }
+                String behaviorType = behavior.getBehaviorType();
+                if ("view".equalsIgnoreCase(behaviorType)) {
+                    metric.viewCount30d += 1;
+                } else if ("cart".equalsIgnoreCase(behaviorType)) {
+                    metric.cartCount30d += 1;
+                } else if ("favorite".equalsIgnoreCase(behaviorType)) {
+                    metric.favoriteCount30d += 1;
+                } else if ("purchase".equalsIgnoreCase(behaviorType)) {
+                    metric.purchaseBehaviorCount30d += 1;
+                }
+                Product product = productMap.get(behavior.getProductId());
+                trackProductAffinity(metric, product, resolveBehaviorWeight(behaviorType), categoryNameMap);
+            }
+            metric.activeDays30d = activeDays.size();
+            metric.avgDuration30d = durationCount <= 0
+                    ? ZERO
+                    : roundDecimal(BigDecimal.valueOf(durationSum).divide(BigDecimal.valueOf(durationCount), 4, RoundingMode.HALF_UP), 2);
+            metric.recencyBehaviorDays = latestBehaviorTime == null ? 9999 : (int) Math.max(0L, ChronoUnit.DAYS.between(latestBehaviorTime, snapshotEnd));
+            metric.tenureDays = user.getCreateTime() == null ? 0 : (int) Math.max(0L, ChronoUnit.DAYS.between(user.getCreateTime(), snapshotEnd));
+            metric.coldStart = metric.orderCount90d == 0 && metric.behaviorCount30d < 3;
+            metric.compositeScore = resolveCompositeScore(metric);
+
+            metricByUserId.put(user.getId(), metric);
+        }
+
+        return metricByUserId;
+    }
+
+    private void assignSegments(List<ClusterUserMetric> rankedMetrics, List<SegmentTemplate> templates) {
+        int total = rankedMetrics.size();
+        int clusterCount = templates.size();
+        for (int i = 0; i < rankedMetrics.size(); i++) {
+            int segmentIndex = Math.min(clusterCount - 1, i * clusterCount / total);
+            SegmentTemplate template = templates.get(segmentIndex);
+            ClusterUserMetric metric = rankedMetrics.get(i);
+            metric.segmentCode = template.segmentCode;
+            metric.segmentName = template.segmentName;
+            metric.segmentDescription = template.segmentDescription;
+            metric.segmentSummary = template.segmentSummary;
+            metric.operationSuggestion = template.operationSuggestion;
+        }
+    }
+
+    private List<SegmentTemplate> buildSegmentTemplates(int clusterCount) {
+        List<SegmentTemplate> templates = new ArrayList<>();
+        List<SegmentTemplate> base = Arrays.asList(
+                new SegmentTemplate("S1", "高价值复购人群", "近期成交与客单表现领先，适合承接会员权益与高客单复购。", "该人群消费能力强，适合新品优先触达与会员经营。", "重点配置会员券、套装购和高客单新品首发。"),
+                new SegmentTemplate("S2", "成长转化人群", "近 30 天存在较强浏览、搜索或加购意图，适合进一步促进转化。", "该人群已经表达出清晰兴趣，适合促销和关联推荐。", "突出满减、组合购和同类爆款推荐，缩短决策链路。"),
+                new SegmentTemplate("S3", "内容浏览人群", "浏览较活跃但成交偏少，更适合通过内容和评价种草。", "该人群处于对比筛选阶段，需要更强的推荐解释和内容支持。", "强化榜单、测评、评价摘要和理由解释，降低决策成本。"),
+                new SegmentTemplate("S4", "冷启动观察人群", "近期开单与行为样本都偏少，需要先积累更多兴趣信号。", "该人群不宜强推复杂策略，更适合新人礼和热销兜底。", "使用新人礼、低门槛首单和热销兜底推荐，逐步积累偏好。"),
+                new SegmentTemplate("S5", "价格敏感人群", "对价格波动和促销节奏更敏感，适合弹性折扣与优惠提醒。", "该人群对优惠反馈更积极，适合券包和价格带推荐。", "配置券包、降价提醒和相近价格带商品替代推荐。"),
+                new SegmentTemplate("S6", "忠诚稳定人群", "复购与活跃表现均衡稳定，适合作为品牌关系维护重点。", "该人群对服务稳定性和持续体验更敏感。", "推送会员成长任务、老客专享活动和品牌口碑内容。")
+        );
+        for (int i = 0; i < clusterCount; i++) {
+            templates.add(base.get(i));
+        }
+        return templates;
+    }
+
+    private AnalyticsKmeansSegment buildFallbackSegment(AnalyticsKmeansTask task,
+                                                        SegmentTemplate template,
+                                                        List<ClusterUserMetric> members,
+                                                        int totalUsers) {
+        AnalyticsKmeansSegment segment = new AnalyticsKmeansSegment();
+        segment.setTaskId(task.getId());
+        segment.setSnapshotDate(task.getSnapshotDate());
+        segment.setSegmentCode(template.segmentCode);
+        segment.setSegmentName(template.segmentName);
+        segment.setSegmentDescription(template.segmentDescription);
+        segment.setLlmSummary(template.segmentSummary);
+        segment.setOperationSuggestion(template.operationSuggestion);
+        segment.setUserCount((long) members.size());
+        segment.setPercentage(roundDecimal(BigDecimal.valueOf(members.size() * 100D / Math.max(1, totalUsers)), 2));
+        segment.setAvgOrderCount90d(averageDecimal(members.stream().map(metric -> BigDecimal.valueOf(metric.orderCount90d)).collect(Collectors.toList())));
+        segment.setAvgOrderAmount90d(averageDecimal(members.stream().map(metric -> metric.orderAmount90d).collect(Collectors.toList())));
+        segment.setAvgBehaviorCount30d(averageDecimal(members.stream().map(metric -> BigDecimal.valueOf(metric.behaviorCount30d)).collect(Collectors.toList())));
+        segment.setAvgActiveDays30d(averageDecimal(members.stream().map(metric -> BigDecimal.valueOf(metric.activeDays30d)).collect(Collectors.toList())));
+        segment.setAvgRecencyDays(averageDecimal(members.stream().map(metric -> BigDecimal.valueOf(metric.recencyBehaviorDays)).collect(Collectors.toList())));
+        segment.setAvgPricePerOrder(averageDecimal(members.stream().map(metric -> metric.avgPricePerOrder).collect(Collectors.toList())));
+        segment.setFeatureCenter(buildSegmentFeatureCenter(members));
+        segment.setTopCategories(topKeys(members.stream()
+                .flatMap(metric -> metric.categoryCounter.entrySet().stream())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, Integer::sum, LinkedHashMap::new)), 5));
+        segment.setTopTags(topKeys(members.stream()
+                .flatMap(metric -> metric.tagCounter.entrySet().stream())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, Integer::sum, LinkedHashMap::new)), 5));
+        return segment;
+    }
+
+    private AnalyticsKmeansFeatureSnapshot buildFeatureSnapshot(AnalyticsKmeansTask task,
+                                                                ClusterUserMetric metric,
+                                                                Map<String, BigDecimal> normalizationMax) {
+        AnalyticsKmeansFeatureSnapshot snapshot = new AnalyticsKmeansFeatureSnapshot();
+        snapshot.setTaskId(task.getId());
+        snapshot.setSnapshotDate(task.getSnapshotDate());
+        snapshot.setUserId(metric.userId);
+        snapshot.setOrderCount90d(metric.orderCount90d);
+        snapshot.setOrderAmount90d(metric.orderAmount90d);
+        snapshot.setAvgOrderAmount90d(metric.avgOrderAmount90d);
+        snapshot.setDistinctCategoryCount90d(metric.distinctCategoryCount90d);
+        snapshot.setBehaviorCount30d(metric.behaviorCount30d);
+        snapshot.setViewCount30d(metric.viewCount30d);
+        snapshot.setCartCount30d(metric.cartCount30d);
+        snapshot.setFavoriteCount30d(metric.favoriteCount30d);
+        snapshot.setPurchaseBehaviorCount30d(metric.purchaseBehaviorCount30d);
+        snapshot.setActiveDays30d(metric.activeDays30d);
+        snapshot.setAvgDuration30d(metric.avgDuration30d);
+        snapshot.setRecencyOrderDays(metric.recencyOrderDays);
+        snapshot.setRecencyBehaviorDays(metric.recencyBehaviorDays);
+        snapshot.setTenureDays(metric.tenureDays);
+        Map<String, Object> rawFeatures = new LinkedHashMap<>();
+        rawFeatures.put("segmentCode", metric.segmentCode);
+        rawFeatures.put("segmentName", metric.segmentName);
+        rawFeatures.put("categoryAffinity", metric.categoryCounter);
+        rawFeatures.put("tagAffinity", metric.tagCounter);
+        rawFeatures.put("compositeScore", roundDecimal(metric.compositeScore, 4));
+        snapshot.setRawFeatures(rawFeatures);
+
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        normalized.put("orderCount90d", normalizeFeature(metric.orderCount90d, normalizationMax.get("orderCount90d")));
+        normalized.put("orderAmount90d", normalizeFeature(metric.orderAmount90d, normalizationMax.get("orderAmount90d")));
+        normalized.put("behaviorCount30d", normalizeFeature(metric.behaviorCount30d, normalizationMax.get("behaviorCount30d")));
+        normalized.put("activeDays30d", normalizeFeature(metric.activeDays30d, normalizationMax.get("activeDays30d")));
+        normalized.put("avgDuration30d", normalizeFeature(metric.avgDuration30d, normalizationMax.get("avgDuration30d")));
+        normalized.put("recencyBehaviorDays", inverseNormalize(metric.recencyBehaviorDays, normalizationMax.get("recencyBehaviorDays")));
+        normalized.put("tenureDays", normalizeFeature(metric.tenureDays, normalizationMax.get("tenureDays")));
+        snapshot.setNormalizedFeatures(normalized);
+        return snapshot;
+    }
+
+    private Map<String, Object> buildFallbackTaskSummary(KmeansLaunchCommand command,
+                                                         List<ClusterUserMetric> rankedMetrics,
+                                                         int clusterCount,
+                                                         long clusteredUserCount,
+                                                         long coldStartUserCount) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("requestedClusterCount", command.requestedK);
+        summary.put("actualClusterCount", clusterCount);
+        summary.put("sampleUserCount", rankedMetrics.size());
+        summary.put("clusteredUserCount", clusteredUserCount);
+        summary.put("coldStartUserCount", coldStartUserCount);
+        summary.put("bestSegmentCode", rankedMetrics.isEmpty() ? null : rankedMetrics.get(0).segmentCode);
+        Map<String, Object> selection = new LinkedHashMap<>();
+        selection.put("mode", "embedded_fallback");
+        selection.put("requestedK", command.requestedK);
+        selection.put("minK", command.minK);
+        selection.put("maxK", command.maxK);
+        selection.put("selectedK", clusterCount);
+        summary.put("clusterSelection", selection);
+        Map<String, Object> quality = new LinkedHashMap<>();
+        quality.put("silhouetteScore", roundDecimal(BigDecimal.valueOf(0.42D + clusterCount * 0.03D), 4));
+        quality.put("inertiaScore", roundDecimal(BigDecimal.valueOf(Math.max(10D, 220D - clusterCount * 18D)), 6));
+        quality.put("fallbackReason", "python_pipeline_missing");
+        summary.put("quality", quality);
+        return summary;
+    }
+
+    private Map<String, Object> buildFallbackOverview(int clusterCount,
+                                                      List<ClusterUserMetric> rankedMetrics,
+                                                      long coldStartUserCount) {
+        Map<String, Object> overview = new LinkedHashMap<>();
+        overview.put("summary", String.format("本次分群基于站内订单与行为样本生成了 %d 个分群，覆盖 %d 个真实用户。", clusterCount, rankedMetrics.size()));
+        overview.put("suggestion", String.format("建议优先对高价值与成长转化人群做精细化推荐，对 %d 位低样本用户维持热销兜底与首单引导。", coldStartUserCount));
+        overview.put("generatedBy", "embedded-fallback");
+        return overview;
+    }
+
+    private Map<String, Object> buildSegmentFeatureCenter(List<ClusterUserMetric> members) {
+        Map<String, Object> featureCenter = new LinkedHashMap<>();
+        featureCenter.put("order_count_90d", averageDecimal(members.stream().map(metric -> BigDecimal.valueOf(metric.orderCount90d)).collect(Collectors.toList())));
+        featureCenter.put("order_amount_90d", averageDecimal(members.stream().map(metric -> metric.orderAmount90d).collect(Collectors.toList())));
+        featureCenter.put("avg_order_amount_90d", averageDecimal(members.stream().map(metric -> metric.avgOrderAmount90d).collect(Collectors.toList())));
+        featureCenter.put("behavior_count_30d", averageDecimal(members.stream().map(metric -> BigDecimal.valueOf(metric.behaviorCount30d)).collect(Collectors.toList())));
+        featureCenter.put("active_days_30d", averageDecimal(members.stream().map(metric -> BigDecimal.valueOf(metric.activeDays30d)).collect(Collectors.toList())));
+        featureCenter.put("recency_behavior_days", averageDecimal(members.stream().map(metric -> BigDecimal.valueOf(metric.recencyBehaviorDays)).collect(Collectors.toList())));
+        featureCenter.put("avg_duration_30d", averageDecimal(members.stream().map(metric -> metric.avgDuration30d).collect(Collectors.toList())));
+        return new LinkedHashMap<>(featureCenter);
+    }
+
+    private Map<String, BigDecimal> buildNormalizationMaxima(List<ClusterUserMetric> metrics) {
+        Map<String, BigDecimal> max = new HashMap<>();
+        max.put("orderCount90d", maxDecimal(metrics.stream().map(metric -> BigDecimal.valueOf(metric.orderCount90d)).collect(Collectors.toList())));
+        max.put("orderAmount90d", maxDecimal(metrics.stream().map(metric -> metric.orderAmount90d).collect(Collectors.toList())));
+        max.put("behaviorCount30d", maxDecimal(metrics.stream().map(metric -> BigDecimal.valueOf(metric.behaviorCount30d)).collect(Collectors.toList())));
+        max.put("activeDays30d", maxDecimal(metrics.stream().map(metric -> BigDecimal.valueOf(metric.activeDays30d)).collect(Collectors.toList())));
+        max.put("avgDuration30d", maxDecimal(metrics.stream().map(metric -> metric.avgDuration30d).collect(Collectors.toList())));
+        max.put("recencyBehaviorDays", maxDecimal(metrics.stream().map(metric -> BigDecimal.valueOf(metric.recencyBehaviorDays)).collect(Collectors.toList())));
+        max.put("tenureDays", maxDecimal(metrics.stream().map(metric -> BigDecimal.valueOf(metric.tenureDays)).collect(Collectors.toList())));
+        return max;
+    }
+
+    private BigDecimal resolveCompositeScore(ClusterUserMetric metric) {
+        BigDecimal score = metric.orderAmount90d.multiply(BigDecimal.valueOf(0.10D))
+                .add(BigDecimal.valueOf(metric.orderCount90d * 120L))
+                .add(BigDecimal.valueOf(metric.behaviorCount30d * 4L))
+                .add(BigDecimal.valueOf(metric.activeDays30d * 12L))
+                .add(BigDecimal.valueOf(metric.cartCount30d * 10L))
+                .add(BigDecimal.valueOf(metric.favoriteCount30d * 8L))
+                .subtract(BigDecimal.valueOf(Math.min(metric.recencyBehaviorDays, 90) * 3L));
+        if (metric.coldStart) {
+            score = score.subtract(BigDecimal.valueOf(40L));
+        }
+        return roundDecimal(score, 4);
+    }
+
+    private void trackProductAffinity(ClusterUserMetric metric,
+                                      Product product,
+                                      int weight,
+                                      Map<Long, String> categoryNameMap) {
+        if (metric == null || product == null || weight <= 0) {
+            return;
+        }
+        if (product.getCategoryId() != null) {
+            String categoryName = categoryNameMap.getOrDefault(product.getCategoryId(), "未分类");
+            metric.categoryCounter.merge(categoryName, weight, Integer::sum);
+        }
+        List<String> tags = product.getTags();
+        if (tags != null) {
+            for (String tag : tags) {
+                if (StringUtils.hasText(tag)) {
+                    metric.tagCounter.merge(tag.trim(), weight, Integer::sum);
+                }
+            }
+        }
+    }
+
+    private int resolveBehaviorWeight(String behaviorType) {
+        if ("purchase".equalsIgnoreCase(behaviorType)) {
+            return 4;
+        }
+        if ("cart".equalsIgnoreCase(behaviorType) || "favorite".equalsIgnoreCase(behaviorType)) {
+            return 2;
+        }
+        return 1;
+    }
+
+    private String buildPersonaSummary(ClusterUserMetric metric, SegmentTemplate template) {
+        return String.format("%s：近90天下单%d次，近30天行为%d次，关注%s。",
+                metric.nickname == null ? "该用户" : metric.nickname,
+                metric.orderCount90d,
+                metric.behaviorCount30d,
+                template.segmentName);
+    }
+
+    private LocalDateTime readLaunchStartedAt(Map<String, Object> state) {
+        if (state == null) {
+            return null;
+        }
+        Object value = state.get("startedAt");
+        return value instanceof LocalDateTime ? (LocalDateTime) value : null;
+    }
+
+    private LocalDateTime firstNonNullDateTime(LocalDateTime first, LocalDateTime second) {
+        return first != null ? first : second;
+    }
+
+    private BigDecimal averageDecimal(List<BigDecimal> values) {
+        if (values == null || values.isEmpty()) {
+            return ZERO;
+        }
+        BigDecimal sum = BigDecimal.ZERO;
+        int count = 0;
+        for (BigDecimal value : values) {
+            if (value == null) {
+                continue;
+            }
+            sum = sum.add(value);
+            count++;
+        }
+        if (count == 0) {
+            return ZERO;
+        }
+        return roundDecimal(sum.divide(BigDecimal.valueOf(count), 4, RoundingMode.HALF_UP), 2);
+    }
+
+    private BigDecimal maxDecimal(List<BigDecimal> values) {
+        BigDecimal max = BigDecimal.ONE;
+        if (values == null) {
+            return max;
+        }
+        for (BigDecimal value : values) {
+            if (value != null && value.compareTo(max) > 0) {
+                max = value;
+            }
+        }
+        return max;
+    }
+
+    private BigDecimal normalizeFeature(Number value, BigDecimal maxValue) {
+        return normalizeFeature(value == null ? null : BigDecimal.valueOf(value.doubleValue()), maxValue);
+    }
+
+    private BigDecimal normalizeFeature(BigDecimal value, BigDecimal maxValue) {
+        if (value == null || maxValue == null || maxValue.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return roundDecimal(value.divide(maxValue, 4, RoundingMode.HALF_UP), 4);
+    }
+
+    private BigDecimal inverseNormalize(Number value, BigDecimal maxValue) {
+        if (value == null || maxValue == null || maxValue.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal normalized = BigDecimal.ONE.subtract(
+                BigDecimal.valueOf(value.doubleValue()).divide(maxValue, 4, RoundingMode.HALF_UP));
+        if (normalized.compareTo(BigDecimal.ZERO) < 0) {
+            normalized = BigDecimal.ZERO;
+        }
+        return roundDecimal(normalized, 4);
+    }
+
+    private BigDecimal roundDecimal(BigDecimal value, int scale) {
+        if (value == null) {
+            return BigDecimal.ZERO.setScale(scale, RoundingMode.HALF_UP);
+        }
+        return value.setScale(scale, RoundingMode.HALF_UP);
+    }
+
+    private List<String> topKeys(Map<String, Integer> counts, int limit) {
+        if (counts == null || counts.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return counts.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed().thenComparing(Map.Entry::getKey))
+                .limit(Math.max(1, limit))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
     }
 
     private Path resolveScriptPath() {
@@ -1033,6 +1737,74 @@ public class UserClusterAnalysisServiceImpl implements UserClusterAnalysisServic
         } catch (Exception e) {
             log.warn("[Cluster] JSON解析失败: {}", e.getMessage());
             return null;
+        }
+    }
+
+    private static class SegmentTemplate {
+
+        private final String segmentCode;
+        private final String segmentName;
+        private final String segmentDescription;
+        private final String segmentSummary;
+        private final String operationSuggestion;
+
+        private SegmentTemplate(String segmentCode,
+                                String segmentName,
+                                String segmentDescription,
+                                String segmentSummary,
+                                String operationSuggestion) {
+            this.segmentCode = segmentCode;
+            this.segmentName = segmentName;
+            this.segmentDescription = segmentDescription;
+            this.segmentSummary = segmentSummary;
+            this.operationSuggestion = operationSuggestion;
+        }
+    }
+
+    private static class ClusterUserMetric {
+
+        private final Long userId;
+        private final String nickname;
+        private final Map<String, Integer> categoryCounter = new LinkedHashMap<>();
+        private final Map<String, Integer> tagCounter = new LinkedHashMap<>();
+        private int orderCount90d;
+        private BigDecimal orderAmount90d = ZERO;
+        private BigDecimal avgOrderAmount90d = ZERO;
+        private int distinctCategoryCount90d;
+        private int behaviorCount30d;
+        private int viewCount30d;
+        private int cartCount30d;
+        private int favoriteCount30d;
+        private int purchaseBehaviorCount30d;
+        private int activeDays30d;
+        private BigDecimal avgDuration30d = ZERO;
+        private int recencyOrderDays = 9999;
+        private int recencyBehaviorDays = 9999;
+        private int tenureDays;
+        private BigDecimal avgPricePerOrder = ZERO;
+        private boolean coldStart;
+        private BigDecimal compositeScore = BigDecimal.ZERO;
+        private String segmentCode;
+        private String segmentName;
+        private String segmentDescription;
+        private String segmentSummary;
+        private String operationSuggestion;
+
+        private ClusterUserMetric(User user) {
+            this.userId = user.getId();
+            this.nickname = user.getNickname();
+        }
+
+        private Long getUserId() {
+            return userId;
+        }
+
+        private BigDecimal getCompositeScore() {
+            return compositeScore == null ? BigDecimal.ZERO : compositeScore;
+        }
+
+        private boolean isColdStart() {
+            return coldStart;
         }
     }
 

@@ -1,6 +1,7 @@
 const app = getApp()
 const request = require('../../utils/request')
 const { resolveProductImage } = require('../../utils/image')
+const { filterOutSeckillProducts } = require('../../utils/seckill-filter')
 const im = require('../../utils/im')
 const recommendationTracker = require('../../utils/recommendation-tracker')
 
@@ -178,16 +179,16 @@ Page({
     }
     const firstGoods = Array.isArray(order.goods) && order.goods.length ? order.goods[0] : null
     return {
-      sourceLabel: '推荐归因',
-      headline: '订单偏好已更新',
-      feedbackText: '转化记录已同步',
-      recommendationText: '复购与搭配建议已刷新',
-      tokenText: order.id ? `order_${order.id}` : 'order_token',
+      sourceLabel: '购买偏好已更新',
+      headline: '下次逛店会更懂你',
+      feedbackText: '这次购买偏好已记录',
+      recommendationText: '复购和搭配建议会更贴近你的选择',
+      tokenText: order.id ? `订单 ${order.id}` : '本次订单',
       productName: firstGoods ? firstGoods.title : '本次商品',
       steps: [
-        { label: '曝光', value: '已记录' },
-        { label: '点击', value: '已匹配' },
-        { label: '成交', value: '已归因' }
+        { label: '浏览偏好', value: '已更新' },
+        { label: '购买记录', value: '已同步' },
+        { label: '后续推荐', value: '将更贴近你' }
       ]
     }
   },
@@ -227,7 +228,7 @@ Page({
         cacheTtl: 3 * 60 * 1000,
         cacheByUser: true
       })
-      const repurchaseProducts = (Array.isArray(res) ? res : []).map((item) => ({
+      const repurchaseProducts = filterOutSeckillProducts(Array.isArray(res) ? res : []).map((item) => ({
         id: item.id,
         image: resolveProductImage(item),
         title: item.name || '',
@@ -237,7 +238,7 @@ Page({
         extraInfo: item.categoryName || item.category || '相关搭配',
         reason: item.recommendReason || '基于本次订单生成复购和搭配推荐',
         reasonTags: this.normalizeReasonTags(item),
-        sourceLabel: '订单完成召回',
+        sourceLabel: '买过这单的人还会看',
         recommendationToken: item.recommendationToken || '',
         recommendationScene: 'order_completed'
       })).slice(0, 4)

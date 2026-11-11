@@ -9,26 +9,13 @@
     bindrefresherrefresh="onRefresh"
   >
     <view class="hero {{activeTab === 'my' ? 'warning' : ''}}">
-      <text class="hero-kicker">优惠券</text>
       <text class="hero-title">{{activeTab === 'available' ? '领券' : '我的券'}}</text>
-      <text class="hero-desc" wx:if="{{activeTab === 'available' && summary.unclaimedCount > 0}}">
-        {{summary.unclaimedCount}} 张可领
-      </text>
-      <text class="hero-desc" wx:elif="{{activeTab === 'available'}}">已看完</text>
-      <text class="hero-desc" wx:if="{{activeTab === 'my' && summary.soonExpiringCount > 0}}">
-        {{summary.soonExpiringNames.length ? ('即将过期：' + summary.soonExpiringNames.join('、')) : '有优惠券将在 3 天内到期'}}
-      </text>
-      <text class="hero-desc" wx:elif="{{activeTab === 'my'}}">暂无临期券</text>
       <view class="hero-pills">
         <text class="hero-pill">可领取 {{summary.unclaimedCount}}</text>
         <text class="hero-pill">快过期 {{summary.soonExpiringCount}}</text>
         <text class="hero-pill">{{usageGuide.actionText}}</text>
       </view>
       <view class="hero-foot">
-        <view class="hero-guide-copy">
-          <text class="hero-guide-label">建议</text>
-          <text class="hero-extra">{{usageGuide.description}}</text>
-        </view>
         <view class="hero-action" bindtap="handleUseCoupon">{{usageGuide.actionText}}</view>
       </view>
     </view>
@@ -72,8 +59,6 @@
             <view class="coupon-source {{item.sourceClass}}">{{item.sourceLabel}}</view>
             <view class="coupon-time">{{item.startTimeStr}} - {{item.endTimeStr}}</view>
           </view>
-          <view class="coupon-tip" wx:if="{{item.userCouponStatus === 0}}">下单抵扣</view>
-          <view class="coupon-tip" wx:else>结算可用</view>
           <view class="coupon-actions">
             <view class="btn-dark" wx:if="{{item.userCouponStatus === 0}}" bindtap="claimCoupon" data-id="{{item.id}}">立即领取</view>
             <view class="btn-light" wx:else bindtap="handleUseCoupon">{{usageGuide.actionText}}</view>
@@ -125,8 +110,6 @@
             <view class="coupon-source {{item.coupon.sourceClass}}">{{item.coupon.sourceLabel}}</view>
             <view class="coupon-time">{{item.coupon.startTimeStr}} - {{item.coupon.endTimeStr}}</view>
           </view>
-          <view class="coupon-tip warning-text" wx:if="{{myStatus === 0 && item.expiringSoon}}">{{item.expiryText}}</view>
-          <view class="coupon-tip" wx:elif="{{myStatus === 0}}">结算自动匹配</view>
           <view class="coupon-actions" wx:if="{{myStatus === 0}}">
             <view class="btn-light" bindtap="handleUseCoupon">{{usageGuide.actionText}}</view>
           </view>

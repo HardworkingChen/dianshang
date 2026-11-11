@@ -7,6 +7,7 @@ const MAX_CART_TOTAL_QUANTITY = 99
 Page({
   data: {
     cartList: [],
+    cartItemCount: 0,
     isAllSelected: false,
     totalPrice: 0,
     selectedCount: 0,
@@ -31,7 +32,7 @@ Page({
 
   onShow() {
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
-      this.getTabBar().setData({ selected: 2 })
+      this.getTabBar().setData({ selected: 3 })
       app.applyMessageBadge()
       app.refreshMessageUnreadCount().catch(() => {})
       app.refreshCartCount().catch(() => {})
@@ -99,6 +100,7 @@ Page({
         : remainingDistinctCount <= 0)
       this.setData({
         cartList: list,
+        cartItemCount: this.getCartItemCount(list),
         loading: false,
         ...this.buildCartCapacityState({
           distinctCount,
@@ -107,7 +109,7 @@ Page({
           cartLimitReached
         })
       })
-      const totalCount = list.reduce((sum, item) => sum + Math.max(0, Number(item.quantity || 0)), 0)
+      const totalCount = this.getCartItemCount(list)
       if (typeof app.syncCartCount === 'function') {
         app.syncCartCount(totalCount)
       }
@@ -116,6 +118,7 @@ Page({
       console.error('获取购物车列表失败', error)
       this.setData({
         cartList: [],
+        cartItemCount: 0,
         loading: false,
         ...this.buildCartCapacityState()
       })
@@ -134,6 +137,12 @@ Page({
     const quantity = Number(value || 1)
     if (!Number.isFinite(quantity)) return 1
     return Math.max(1, Math.min(MAX_CART_ITEM_QUANTITY, Math.round(quantity)))
+  },
+
+  getCartItemCount(list = []) {
+    return (Array.isArray(list) ? list : []).reduce((sum, item) => {
+      return sum + Math.max(0, Number(item && item.quantity ? item.quantity : 0))
+    }, 0)
   },
 
   buildCartUiFields(item = {}) {
@@ -482,7 +491,7 @@ Page({
       }
       
       // 检查购物车总数量
-      const totalQuantity = list.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 0)), 0)
+      const totalQuantity = this.getCartItemCount(list)
       if (totalQuantity >= MAX_CART_TOTAL_QUANTITY) {
         wx.showToast({ title: `购物车商品总数量不能超过 ${MAX_CART_TOTAL_QUANTITY} 件`, icon: 'none' })
         return
@@ -499,9 +508,12 @@ Page({
         ...list[index],
         quantity: qty
       })
-      this.setData({ cartList: list })
+      this.setData({
+        cartList: list,
+        cartItemCount: this.getCartItemCount(list)
+      })
       if (typeof app.syncCartCount === 'function') {
-        app.syncCartCount(list.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 0)), 0))
+        app.syncCartCount(this.getCartItemCount(list))
       }
       this.calculateTotal()
       
@@ -514,9 +526,12 @@ Page({
         ...list[index],
         quantity: type === 'add' ? qty - 1 : qty + 1
       })
-      this.setData({ cartList: list })
+      this.setData({
+        cartList: list,
+        cartItemCount: this.getCartItemCount(list)
+      })
       if (typeof app.syncCartCount === 'function') {
-        app.syncCartCount(list.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 0)), 0))
+        app.syncCartCount(this.getCartItemCount(list))
       }
       this.calculateTotal()
       wx.showToast({ title: '更新数量失败', icon: 'none' })
@@ -583,13 +598,14 @@ Page({
             list.splice(index, 1)
             this.setData({
               cartList: list,
+              cartItemCount: this.getCartItemCount(list),
               ...this.buildCartCapacityState({
                 distinctCount: list.length,
                 distinctLimit: this.data.distinctLimit
               })
             })
             if (typeof app.syncCartCount === 'function') {
-              app.syncCartCount(list.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 0)), 0))
+              app.syncCartCount(this.getCartItemCount(list))
             }
             this.calculateTotal()
             wx.showToast({ title: '已移出', icon: 'success' })
